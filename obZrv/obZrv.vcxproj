@@ -206,9 +206,9 @@
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="targetver.h" />
     <ClInclude Include="obZrv.h" />
-    <ClInclude Include="obZrvDoc.h" />
-    <ClInclude Include="obZrvFrm.h" />
-    <ClInclude Include="obZrvView.h" />
+    <ClInclude Include="ZDoc.h" />
+    <ClInclude Include="Frame.h" />
+    <ClInclude Include="ZView.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\AulddaysDpiHelper\AulddaysDpiHelper.cpp" />
@@ -223,9 +223,9 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="obZrv.cpp" />
-    <ClCompile Include="obZrvDoc.cpp" />
-    <ClCompile Include="obZrvFrm.cpp" />
-    <ClCompile Include="obZrvView.cpp" />
+    <ClCompile Include="ZDoc.cpp" />
+    <ClCompile Include="Frame.cpp" />
+    <ClCompile Include="ZView.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="obZrv.rc" />

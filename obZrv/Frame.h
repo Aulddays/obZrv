@@ -18,7 +18,7 @@
 // You should have received a copy of the GNU General Public License
 // along with obZrv. If not, see <https://www.gnu.org/licenses/>.
 
-// obZrvFrm.h : interface of the ObZrvFrm class
+// Frame.h : interface of the ObZrvFrm class
 //
 
 #pragma once

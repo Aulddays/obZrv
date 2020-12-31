@@ -23,7 +23,7 @@
 #ifndef SHARED_HANDLERS
 #include "obZrv.h"
 #endif
-#include "obZrvDoc.h"
+#include "ZDoc.h"
 
 #include <stdint.h>
 #include <algorithm>

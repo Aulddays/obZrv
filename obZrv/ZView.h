@@ -18,7 +18,7 @@
 // You should have received a copy of the GNU General Public License
 // along with obZrv. If not, see <https://www.gnu.org/licenses/>.
 
-// obZrvView.h : interface of the ObZrvView class
+// ZView.h : interface of the ObZrvView class
 //
 
 #pragma once

@@ -18,7 +18,7 @@
 // You should have received a copy of the GNU General Public License
 // along with obZrv. If not, see <https://www.gnu.org/licenses/>.
 
-// obZrvView.cpp : implementation of the ObZrvView class
+// ZView.cpp : implementation of the ObZrvView class
 //
 
 #include "stdafx.h"
@@ -28,8 +28,8 @@
 #include "obZrv.h"
 #endif
 
-#include "obZrvDoc.h"
-#include "obZrvView.h"
+#include "ZDoc.h"
+#include "ZView.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW

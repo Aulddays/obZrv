@@ -24,10 +24,10 @@
 #include "afxwinappex.h"
 #include "afxdialogex.h"
 #include "obZrv.h"
-#include "obZrvFrm.h"
+#include "Frame.h"
 
-#include "obZrvDoc.h"
-#include "obZrvView.h"
+#include "ZDoc.h"
+#include "ZView.h"
 
 #include "BasicBitmap\BasicBitmap.h"
 

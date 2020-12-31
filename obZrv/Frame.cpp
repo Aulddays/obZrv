@@ -18,13 +18,13 @@
 // You should have received a copy of the GNU General Public License
 // along with obZrv. If not, see <https://www.gnu.org/licenses/>.
 
-// obZrvFrm.cpp : implementation of the ObZrvFrm class
+// Frame.cpp : implementation of the ObZrvFrm class
 //
 
 #include "stdafx.h"
 #include "obZrv.h"
 
-#include "obZrvFrm.h"
+#include "Frame.h"
 
 #include "../AulddaysDpiHelper/AulddaysDpiHelper.h"
 
