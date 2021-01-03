@@ -28,6 +28,7 @@
 #include <vector>
 #include <string>
 
+class ObZrvView;
 
 class ObZrvDoc : public CDocument
 {
@@ -40,7 +41,15 @@ public:
 	BasicBitmap *getBBitmap(SIZE &size);
 
 protected:
+	ObZrvView *_view = NULL;
+
 	Image * _image = NULL;
+	
+	// for animated images
+	bool _animated = false;
+	int _curframe = 0;
+	int _curloop = 0;
+	static void CALLBACK onAnimate(HWND hWnd, UINT nMsg, UINT_PTR nIDEvent, DWORD dwTime);
 
 	// dir management
 	std::wstring _dir;

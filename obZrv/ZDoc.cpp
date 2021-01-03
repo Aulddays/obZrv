@@ -31,6 +31,7 @@
 #include <string.h>
 #include <propkey.h>
 #include "GdiPlusCodec.h"
+#include "ZView.h"
 
 #undef max
 #undef min
@@ -179,6 +180,19 @@ BOOL ObZrvDoc::OnOpenDocument(LPCTSTR lpszPathName)
 #endif
 	ENSURE(lpszPathName);
 
+	_view = NULL;
+	POSITION posView = GetFirstViewPosition();
+	while (posView)
+	{
+		_view = dynamic_cast<ObZrvView *>(GetNextView(posView));
+		if (_view)
+			break;
+	}
+	if (!_view)
+		return FALSE;
+	if (_animated)
+		_view->KillTimer((UINT_PTR)this);
+
 	updateDir(lpszPathName, true);
 
 	DeleteContents();
@@ -191,6 +205,13 @@ BOOL ObZrvDoc::OnOpenDocument(LPCTSTR lpszPathName)
 	if (res)
 		return FALSE;
 
+	_curframe = 0;
+	_curloop = 0;
+	_animated = _image->getFrameCount() > 1;
+	if (_animated)
+	{
+		_view->SetTimer((UINT_PTR)this, _image->getFrameDelay(_curframe), onAnimate);
+	}
 	return TRUE;
 }
 
@@ -205,7 +226,7 @@ BasicBitmap *ObZrvDoc::getBBitmap(SIZE &size)
 {
 	if (!_image || size.cx <= 0 || size.cy <= 0)
 		return NULL;
-	_image->getFrame();
+	//_image->getFrame();
 	RECT srcRect = { 0, 0, _image->getSize().cx, _image->getSize().cy };
 	if (size.cx >= _image->getSize().cx && size.cy >= _image->getSize().cy)
 	{
@@ -323,4 +344,21 @@ int ObZrvDoc::navigate(NavCmd cmd)
 	if (cmd == NAV_LAST && _diridx < (int)_dirfiles.size() - 1)
 		return AfxGetApp()->OpenDocumentFile((_dir + DIRSEP + _dirfiles[_dirfiles.size() - 1]).c_str(), FALSE) ? 0 : -1;
 	return -1;
+}
+
+void CALLBACK ObZrvDoc::onAnimate(HWND hWnd, UINT nMsg, UINT_PTR nIDEvent, DWORD dwTime)
+{
+	ObZrvDoc *pthis = (ObZrvDoc *)nIDEvent;
+	pthis->_view->KillTimer((UINT_PTR)nIDEvent);
+	if (!pthis->_image)
+		return;
+	pthis->_curframe++;
+	if (pthis->_curframe >= pthis->_image->getFrameCount())
+	{
+		pthis->_curframe = 0;
+		pthis->_curloop++;
+	}
+	pthis->_image->getFrame(pthis->_curframe);
+	pthis->UpdateAllViews(NULL);
+	pthis->_view->SetTimer(nIDEvent, pthis->_image->getFrameDelay(pthis->_curframe), onAnimate);
 }

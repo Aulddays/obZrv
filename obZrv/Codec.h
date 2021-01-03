@@ -28,6 +28,7 @@ enum IM_ErrorCodes
 	IM_FAIL,
 	IM_TOO_LARGE,
 	IM_NOT_SUPPORTED,
+	IM_READFILE_ERR,
 };
 
 class Image
@@ -35,9 +36,13 @@ class Image
 public:
 	virtual ~Image() { };
 	virtual SIZE getSize() const = 0;
-	virtual int getFrame() = 0;
-	//virtual HBITMAP getBitmap(RECT srcRect, SIZE outSize) = 0;
+	virtual int getFrame(int idx) = 0;
 	virtual BasicBitmap *getBBitmap(RECT srcRect, SIZE outSize) = 0;
+
+	virtual int getFrameCount() const = 0;
+	virtual long getFrameDelay(int fid) const = 0;
+	virtual int getLoopNum() const = 0;
+
 };
 
 class Codec
