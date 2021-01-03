@@ -1,6 +1,6 @@
 // obZrv
 // 
-// Copyright (c) 2020 Aulddays (https://dev.aulddays.com/). All rights reserved.
+// Copyright (c) 2020, 2021 Aulddays (https://dev.aulddays.com/). All rights reserved.
 //
 // This file is part of obZrv.
 // 
