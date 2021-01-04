@@ -210,6 +210,8 @@ BOOL ObZrvDoc::OnOpenDocument(LPCTSTR lpszPathName)
 	_animated = _image->getFrameCount() > 1;
 	if (_animated)
 	{
+		_tmstart = GetTickCount();
+		_totaldelay = _image->getFrameDelay(_curframe);
 		_view->SetTimer((UINT_PTR)this, _image->getFrameDelay(_curframe), onAnimate);
 	}
 	return TRUE;
@@ -352,13 +354,62 @@ void CALLBACK ObZrvDoc::onAnimate(HWND hWnd, UINT nMsg, UINT_PTR nIDEvent, DWORD
 	pthis->_view->KillTimer((UINT_PTR)nIDEvent);
 	if (!pthis->_image)
 		return;
-	pthis->_curframe++;
-	if (pthis->_curframe >= pthis->_image->getFrameCount())
+
+	if (pthis->_image->getLoopNum() > 0 && pthis->_curloop >= pthis->_image->getLoopNum())	// loop end
 	{
-		pthis->_curframe = 0;
-		pthis->_curloop++;
+		pthis->_curframe = pthis->_image->getFrameCount() - 1;
+		pthis->_image->getFrame(pthis->_curframe);
+		pthis->UpdateAllViews(NULL);
+		return;
 	}
+
+	// adjust time
+	int64_t tmcur = GetTickCount();
+	while (pthis->_tmstart + pthis->_totaldelay - pthis->_image->getFrameDelay(pthis->_curframe) > tmcur)
+		pthis->_tmstart -= (int64_t)0x100000000ll;	// fix GetTickCount() wrap
+	long allowdiff = std::max(pthis->_image->getFrameDelay(pthis->_curframe) * 10, 1000l);
+	if (pthis->_tmstart + pthis->_totaldelay > tmcur + allowdiff || pthis->_tmstart + pthis->_totaldelay < tmcur - allowdiff)
+	{
+		// shifted too much, just start over
+		pthis->_curframe = pthis->_image->getFrameCount() - 1;
+		pthis->_tmstart = tmcur;
+	}
+	else if (pthis->_tmstart + pthis->_totaldelay > tmcur + 20)
+	{
+		// current frame not due yet, just wait more
+		pthis->_view->SetTimer((UINT_PTR)nIDEvent, (UINT)(pthis->_tmstart + pthis->_totaldelay - tmcur), onAnimate);
+		return;
+	}
+
+	do
+	{
+		pthis->_curframe++;
+		if (pthis->_curframe >= pthis->_image->getFrameCount())
+		{
+			pthis->_curframe = 0;
+			pthis->_curloop++;
+			if (pthis->_image->getLoopNum() > 0 && pthis->_curloop >= pthis->_image->getLoopNum())	// loop end
+			{
+				pthis->_curframe = pthis->_image->getFrameCount() - 1;
+				break;
+			}
+		}
+		if (pthis->_image->getFrameDelay(pthis->_curframe) == 0)
+			continue;	// skip 0 delay frames
+		pthis->_totaldelay += pthis->_image->getFrameDelay(pthis->_curframe);
+	} while (pthis->_tmstart + pthis->_totaldelay <= tmcur + 10);	// skip a frame if its time has already passed
+
 	pthis->_image->getFrame(pthis->_curframe);
 	pthis->UpdateAllViews(NULL);
-	pthis->_view->SetTimer(nIDEvent, pthis->_image->getFrameDelay(pthis->_curframe), onAnimate);
+	if (pthis->_image->getLoopNum() <= 0 ||	// setup timer only if has not loop end
+		pthis->_curloop < pthis->_image->getLoopNum() && pthis->_curframe < pthis->_image->getFrameCount() - 1)
+	{
+		int64_t tmcurnew = GetTickCount();
+		if (tmcurnew < tmcur)
+			pthis->_tmstart -= (int64_t)0x100000000ll;
+		// calculate precise delay
+		UINT delay = pthis->_tmstart + pthis->_totaldelay > tmcur ? (UINT)(pthis->_tmstart + pthis->_totaldelay - tmcur) : 1;
+		delay = std::min(delay, (UINT)(pthis->_image->getFrameDelay(pthis->_curframe)) * 5);
+		pthis->_view->SetTimer(nIDEvent, delay, onAnimate);
+	}
 }

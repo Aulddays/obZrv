@@ -27,6 +27,7 @@
 #include "Codec.h"
 #include <vector>
 #include <string>
+#include <stdint.h>
 
 class ObZrvView;
 
@@ -49,6 +50,8 @@ protected:
 	bool _animated = false;
 	int _curframe = 0;
 	int _curloop = 0;
+	int64_t _tmstart = 0;	// GetTickCount() of animation start. may be adjusted to < 0 if GetTickCount() has wrapped
+	int64_t _totaldelay = 0;	// sum of frame delays desired
 	static void CALLBACK onAnimate(HWND hWnd, UINT nMsg, UINT_PTR nIDEvent, DWORD dwTime);
 
 	// dir management

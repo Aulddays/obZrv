@@ -23,7 +23,10 @@
 #include <stdint.h>
 #include <memory>
 #include <vector>
+#include <algorithm>
 #include <gdiplus.h>
+
+#undef max
 
 static BasicBitmap *gdiplusConvert(Gdiplus::Bitmap *gbitmap, BasicBitmap::PixelFmt outfmt = BasicBitmap::UNKNOW);
 
@@ -123,8 +126,12 @@ protected:
 			if (_gbitmap->GetPropertyItem(PropertyTagFrameDelay, propsize, propitem) != Gdiplus::Ok)
 				return IM_FAIL;
 			_framedelay.resize(propsize);
+			long totaldelay = 0;
 			for (UINT i = 0; i < propsize; ++i)
-				_framedelay[i] = ((long *)propitem->value)[i] * 10;
+			{
+				_framedelay[i] = std::max(((long *)propitem->value)[i] * 10, 0l);
+				totaldelay += _framedelay[i];
+			}
 
 			// loop count
 			propsize = _gbitmap->GetPropertyItemSize(PropertyTagLoopCount);
@@ -134,6 +141,8 @@ protected:
 			if (_gbitmap->GetPropertyItem(PropertyTagLoopCount, propsize, propitem) != Gdiplus::Ok)
 				return IM_FAIL;
 			_loopnum = *((SHORT*)propitem->value);
+			if (totaldelay == 0 && _loopnum <= 0)
+				_loopnum = 1;	// if totaldelay is 0, force loop only once
 			TRACE("Loop count %d\n", _loopnum);
 		}
 
