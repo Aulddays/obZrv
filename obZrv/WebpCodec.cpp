@@ -20,12 +20,70 @@
 
 #include "stdafx.h"
 #include "WebpCodec.h"
+#include <memory>
+
+class WebpImage : public Image
+{
+	friend WebpCodec;
+
+protected:
+	int open(const wchar_t *filename)
+	{
+		return IM_NOT_SUPPORTED;
+	}
+
+public:
+	virtual ~WebpImage()
+	{
+	}
+
+	virtual SIZE getDimension() const
+	{
+		return {-1, -1};
+	}
+
+	virtual int getFrame(int idx)
+	{
+		return IM_NOT_SUPPORTED;
+	}
+
+	virtual BasicBitmap *getBBitmap(RECT srcRect, SIZE outSize)
+	{
+		return NULL;
+	}
+
+	virtual int getFrameCount() const
+	{
+		return 0;
+	}
+
+	virtual long getFrameDelay(int fid) const
+	{
+		return 0;
+	}
+
+	virtual int getLoopNum() const
+	{
+		return 0;
+	}
+};
+
 
 WebpCodec::WebpCodec()
 {
 }
 
-
 WebpCodec::~WebpCodec()
 {
+}
+
+int WebpCodec::open(const wchar_t *filename, Image ** image)
+{
+	*image = NULL;
+	std::unique_ptr<WebpImage> pimg = std::make_unique<WebpImage>();
+	int res = pimg->open(filename);
+	if (res != IM_OK)
+		return res;
+	*image = pimg.release();
+	return res;
 }

@@ -229,20 +229,20 @@ BasicBitmap *ObZrvDoc::getBBitmap(SIZE &size)
 	if (!_image || size.cx <= 0 || size.cy <= 0)
 		return NULL;
 	//_image->getFrame();
-	RECT srcRect = { 0, 0, _image->getSize().cx, _image->getSize().cy };
-	if (size.cx >= _image->getSize().cx && size.cy >= _image->getSize().cy)
+	RECT srcRect = { 0, 0, _image->getDimension().cx, _image->getDimension().cy };
+	if (size.cx >= _image->getDimension().cx && size.cy >= _image->getDimension().cy)
 	{
-		size.cx = _image->getSize().cx;
-		size.cy = _image->getSize().cy;
+		size.cx = _image->getDimension().cx;
+		size.cy = _image->getDimension().cy;
 	}
-	else if ((uint64_t)size.cx * _image->getSize().cy > (uint64_t)size.cy * _image->getSize().cx)
+	else if ((uint64_t)size.cx * _image->getDimension().cy > (uint64_t)size.cy * _image->getDimension().cx)
 	{
-		size.cx = (LONG)((double)size.cy * _image->getSize().cx / _image->getSize().cy + 0.5);
+		size.cx = (LONG)((double)size.cy * _image->getDimension().cx / _image->getDimension().cy + 0.5);
 		size.cx = std::max(size.cx, 1l);
 	}
-	else if ((uint64_t)size.cx * _image->getSize().cy < (uint64_t)size.cy * _image->getSize().cx)
+	else if ((uint64_t)size.cx * _image->getDimension().cy < (uint64_t)size.cy * _image->getDimension().cx)
 	{
-		size.cy = (LONG)((double)size.cx * _image->getSize().cy / _image->getSize().cx + 0.5);
+		size.cy = (LONG)((double)size.cx * _image->getDimension().cy / _image->getDimension().cx + 0.5);
 		size.cy = std::max(size.cy, 1l);
 	}
 	return _image->getBBitmap(srcRect, size);

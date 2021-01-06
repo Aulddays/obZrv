@@ -39,7 +39,7 @@ protected:
 
 	// image properties
 	GUID _imgfmt;
-	SIZE _size{};
+	SIZE _dimension{};
 	int _framecnt = 0;
 	std::vector<long> _framedelay;
 	int _loopnum = 0;
@@ -57,7 +57,7 @@ protected:
 	//HBITMAP _hOutBitmap = NULL;
 	BasicBitmap *_outBitmap = NULL;
 	RECT _outRect;
-	SIZE _outSize;
+	SIZE _outDim;
 
 	int open(const wchar_t *filename)
 	{
@@ -94,8 +94,8 @@ protected:
 		if (_gbitmap->GetLastStatus() != Gdiplus::Ok)
 			return IM_FAIL;
 
-		_size.cx = _gbitmap->GetWidth();
-		_size.cy = _gbitmap->GetHeight();
+		_dimension.cx = _gbitmap->GetWidth();
+		_dimension.cy = _gbitmap->GetHeight();
 
 		// get image format
 		if (_gbitmap->GetRawFormat(&_imgfmt) != Gdiplus::Ok)
@@ -178,9 +178,9 @@ public:
 			_gstream->Release();
 	}
 
-	virtual SIZE getSize() const
+	virtual SIZE getDimension() const
 	{
-		return _size;
+		return _dimension;
 	}
 
 	virtual int getFrame(int idx)
@@ -224,29 +224,29 @@ public:
 		return _loopnum;
 	}
 
-	BasicBitmap *getBBitmap(RECT srcRect, SIZE outSize)
+	BasicBitmap *getBBitmap(RECT srcRect, SIZE outDim)
 	{
 		// if same as the one buffered, use it directly
-		if (_outBitmap && srcRect == _outRect && outSize == _outSize)
+		if (_outBitmap && srcRect == _outRect && outDim == _outDim)
 			return _outBitmap;
 		if (!_fbitmap)	// no opened image
 			return NULL;
 		if (!(srcRect.left >= 0 && srcRect.right > srcRect.left && srcRect.top >= 0 && srcRect.bottom > srcRect.top &&
-			srcRect.right <= _size.cx && srcRect.bottom <= _size.cy && outSize.cx > 0 && outSize.cy > 0))
+			srcRect.right <= _dimension.cx && srcRect.bottom <= _dimension.cy && outDim.cx > 0 && outDim.cy > 0))
 			return NULL;	// invalid input paramerters
 
 		// if the whole image without scaling is required, just return the original bitmap
-		if (srcRect.top == 0 && srcRect.left == 0 && srcRect.bottom == _size.cy && srcRect.right == _size.cx && outSize == _size)
+		if (srcRect.top == 0 && srcRect.left == 0 && srcRect.bottom == _dimension.cy && srcRect.right == _dimension.cx && outDim == _dimension)
 			return _fbitmap;
 
 		delete _outBitmap;	// delete the buffered one
 		_outBitmap = NULL;
 		_outRect = srcRect;
-		_outSize = outSize;
+		_outDim = outDim;
 
 		// crop & scale
-		_outBitmap = new BasicBitmap(outSize.cx, outSize.cy, _fbitmap->Format());
-		_outBitmap->Resample(0, 0, outSize.cx, outSize.cy, _fbitmap,
+		_outBitmap = new BasicBitmap(outDim.cx, outDim.cy, _fbitmap->Format());
+		_outBitmap->Resample(0, 0, outDim.cx, outDim.cy, _fbitmap,
 			srcRect.left, srcRect.top, srcRect.right, srcRect.bottom, BasicBitmap::BILINEAR);
 		return _outBitmap;
 	}

@@ -35,7 +35,7 @@ class Image
 {
 public:
 	virtual ~Image() { delete[] _filebuf; }
-	virtual SIZE getSize() const = 0;
+	virtual SIZE getDimension() const = 0;
 	virtual int getFrame(int idx) = 0;
 	virtual BasicBitmap *getBBitmap(RECT srcRect, SIZE outSize) = 0;
 
