@@ -34,7 +34,7 @@ enum IM_ErrorCodes
 class Image
 {
 public:
-	virtual ~Image() { };
+	virtual ~Image() { delete[] _filebuf; }
 	virtual SIZE getSize() const = 0;
 	virtual int getFrame(int idx) = 0;
 	virtual BasicBitmap *getBBitmap(RECT srcRect, SIZE outSize) = 0;
@@ -42,6 +42,30 @@ public:
 	virtual int getFrameCount() const = 0;
 	virtual long getFrameDelay(int fid) const = 0;
 	virtual int getLoopNum() const = 0;
+
+protected:
+	// image file buffer
+	unsigned char *_filebuf = NULL;
+	size_t _filesize = 0;
+
+	int readFile(const wchar_t *fn)
+	{
+		assert(_filebuf == NULL);
+		FILE *fp = _wfopen(fn, L"rb");
+		if (!fp)
+			return IM_READFILE_ERR;
+		fseek(fp, 0, SEEK_END);
+		_filesize = ftell(fp);
+		_filebuf = new unsigned char[_filesize];
+		fseek(fp, 0, SEEK_SET);
+		size_t readlen = fread(_filebuf, 1, _filesize, fp);
+		fclose(fp);
+		if (readlen != _filesize)
+			return IM_READFILE_ERR;
+		return IM_OK;
+	}
+
+
 
 };
 

@@ -16,6 +16,9 @@
     <Filter Include="BasicBitmap">
       <UniqueIdentifier>{1adc70bc-1650-43a7-a0a6-4374342d82fe}</UniqueIdentifier>
     </Filter>
+    <Filter Include="webp">
+      <UniqueIdentifier>{a413db3c-d780-4f50-be18-d08dcf03c31c}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="obZrv.h">
@@ -54,6 +57,12 @@
     <ClInclude Include="ZView.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="webp\decode.h">
+      <Filter>webp</Filter>
+    </ClInclude>
+    <ClInclude Include="WebpCodec.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="obZrv.cpp">
@@ -84,6 +93,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Frame.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="WebpCodec.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

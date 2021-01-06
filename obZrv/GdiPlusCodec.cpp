@@ -50,8 +50,6 @@ protected:
 	// gdiplus bitmap object. only used for animated images, otherwise _fbitmap is sufficient
 	Gdiplus::Bitmap *_gbitmap = NULL;
 	// buffer for _gbitmap
-	unsigned char *_gbuf = NULL;
-	size_t _gbufsize = 0;
 	IStream *_gstream = NULL;
 
 	// (resized) output bitmap of current frame
@@ -87,7 +85,7 @@ protected:
 			if (!pfSHCreateMemStream)
 				return IM_NOT_SUPPORTED;
 		}
-		_gstream = pfSHCreateMemStream(_gbuf, _gbufsize);
+		_gstream = pfSHCreateMemStream(_filebuf, _filesize);
 		if (!_gstream)
 			return IM_FAIL;
 
@@ -160,27 +158,10 @@ protected:
 				_gstream->Release();
 				_gstream = NULL;
 			}
-			delete []_gbuf;
-			_gbuf = NULL;
+			delete []_filebuf;
+			_filebuf = NULL;
 		}
 
-		return IM_OK;
-	}
-
-	int readFile(const wchar_t *fn)
-	{
-		assert(_gbuf == NULL);
-		FILE *fp = _wfopen(fn, L"rb");
-		if (!fp)
-			return IM_READFILE_ERR;
-		fseek(fp, 0, SEEK_END);
-		_gbufsize = ftell(fp);
-		_gbuf = new unsigned char[_gbufsize];
-		fseek(fp, 0, SEEK_SET);
-		size_t readlen = fread(_gbuf, 1, _gbufsize, fp);
-		fclose(fp);
-		if (readlen != _gbufsize)
-			return IM_READFILE_ERR;
 		return IM_OK;
 	}
 
@@ -195,7 +176,6 @@ public:
 		delete _gbitmap;
 		if (_gstream)
 			_gstream->Release();
-		delete []_gbuf;
 	}
 
 	virtual SIZE getSize() const
