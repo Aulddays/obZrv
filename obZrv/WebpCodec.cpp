@@ -21,35 +21,98 @@
 #include "stdafx.h"
 #include "WebpCodec.h"
 #include <memory>
+#include "webp/decode.h"
+
+// determine the libwebp version to link against
+#if !defined(_M_X64)	// x86
+#	if !defined(_DLL)	// static crt
+#		if !defined(_DEBUG)	// release
+#			pragma comment(lib, "webp/libwebpdecoder-MT.lib")
+#		else	// debug
+#			pragma comment(lib, "webp/libwebpdecoder-MTd.lib")
+#		endif	// _DEBUG
+#	endif	// _DLL
+#endif	// _M_X64
 
 class WebpImage : public Image
 {
 	friend WebpCodec;
+protected:
+	SIZE _dimension{};
+
+	// bitmap object of current frame
+	BasicBitmap *_fbitmap = NULL;
+
+	// (resized) output bitmap of current frame
+	BasicBitmap *_outBitmap = NULL;
+	RECT _outRect;
+	SIZE _outDim;
 
 protected:
 	int open(const wchar_t *filename)
 	{
-		return IM_NOT_SUPPORTED;
+		int res = readFile(filename);
+		if (res != IM_OK)
+			return res;
+		WebPBitstreamFeatures imgfea;
+		if (WebPGetFeatures(_filebuf, _filesize, &imgfea) != VP8_STATUS_OK)
+			return IM_FAIL;
+		std::unique_ptr<BasicBitmap> bmp = std::make_unique<BasicBitmap>(imgfea.width, imgfea.height,
+			imgfea.has_alpha ? BasicBitmap::A8R8G8B8 : BasicBitmap::R8G8B8);
+		if (imgfea.has_alpha &&
+			!WebPDecodeARGBInto(_filebuf, _filesize, bmp->Bits(), bmp->Pitch() * bmp->Height(), bmp->Pitch()) ||
+			!imgfea.has_alpha &&
+			!WebPDecodeRGBInto(_filebuf, _filesize, bmp->Bits(), bmp->Pitch() * bmp->Height(), bmp->Pitch()))
+			return IM_FAIL;
+
+		_fbitmap = bmp.release();
+		_dimension = SIZE{ imgfea.width, imgfea.height };
+
+		return IM_OK;
 	}
 
 public:
 	virtual ~WebpImage()
 	{
+		delete _fbitmap;
+		delete _outBitmap;
 	}
 
 	virtual SIZE getDimension() const
 	{
-		return {-1, -1};
+		return _dimension;
 	}
 
 	virtual int getFrame(int idx)
 	{
-		return IM_NOT_SUPPORTED;
+		return IM_OK;
 	}
 
-	virtual BasicBitmap *getBBitmap(RECT srcRect, SIZE outSize)
+	virtual BasicBitmap *getBBitmap(RECT srcRect, SIZE outDim)
 	{
-		return NULL;
+		// if same as the one buffered, use it directly
+		if (_outBitmap && srcRect == _outRect && outDim == _outDim)
+			return _outBitmap;
+		if (!_fbitmap)	// no opened image
+			return NULL;
+		if (!(srcRect.left >= 0 && srcRect.right > srcRect.left && srcRect.top >= 0 && srcRect.bottom > srcRect.top &&
+			srcRect.right <= _dimension.cx && srcRect.bottom <= _dimension.cy && outDim.cx > 0 && outDim.cy > 0))
+			return NULL;	// invalid input paramerters
+
+		// if the whole image without scaling is required, just return the original bitmap
+		if (srcRect.top == 0 && srcRect.left == 0 && srcRect.bottom == _dimension.cy && srcRect.right == _dimension.cx && outDim == _dimension)
+			return _fbitmap;
+
+		delete _outBitmap;	// delete the buffered one
+		_outBitmap = NULL;
+		_outRect = srcRect;
+		_outDim = outDim;
+
+		// crop & scale
+		_outBitmap = new BasicBitmap(outDim.cx, outDim.cy, _fbitmap->Format());
+		_outBitmap->Resample(0, 0, outDim.cx, outDim.cy, _fbitmap,
+			srcRect.left, srcRect.top, srcRect.right, srcRect.bottom, BasicBitmap::BILINEAR);
+		return _outBitmap;
 	}
 
 	virtual int getFrameCount() const

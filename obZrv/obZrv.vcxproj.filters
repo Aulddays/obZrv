@@ -63,6 +63,9 @@
     <ClInclude Include="WebpCodec.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="webp\types.h">
+      <Filter>webp</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="obZrv.cpp">

@@ -83,7 +83,7 @@ LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
 // Icon with lowest ID value placed first to ensure application icon
 // remains consistent on all systems.
 IDR_MAINFRAME           ICON                    "res\\obZrv.ico"
-IDR_obZrvTYPE         ICON                    "res\\ObZrvDoc.ico"
+IDR_obZrvTYPE           ICON                    "res\\ObZrvDoc.ico"
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -180,7 +180,7 @@ BEGIN
     END
     POPUP "&Help"
     BEGIN
-        MENUITEM "&About obZrv...",           ID_APP_ABOUT
+        MENUITEM "&About obZrv...",             ID_APP_ABOUT
     END
 END
 
@@ -196,7 +196,7 @@ END
 
 IDR_HELP_MENU MENU
 BEGIN
-    MENUITEM "&About obZrv...",           ID_APP_ABOUT
+    MENUITEM "&About obZrv...",             ID_APP_ABOUT
 END
 
 IDR_THEME_MENU MENU
@@ -315,7 +315,7 @@ END
 
 STRINGTABLE
 BEGIN
-    IDR_MAINFRAME           "obZrv\n\nobZrv\nImages\n.jpg;.bmp;.png;.gif\nobZrv.Document\nobZrv.Document"
+    IDR_MAINFRAME           "obZrv\n\nobZrv\nImages\n.jpg;.bmp;.png;.gif;.webp\nobZrv.Document\nobZrv.Document"
 END
 
 STRINGTABLE

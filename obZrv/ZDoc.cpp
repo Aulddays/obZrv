@@ -31,6 +31,7 @@
 #include <string.h>
 #include <propkey.h>
 #include "GdiPlusCodec.h"
+#include "WebpCodec.h"
 #include "ZView.h"
 
 #undef max
@@ -51,6 +52,7 @@ END_MESSAGE_MAP()
 const static wchar_t DIRSEP = L'\\';
 
 GdiPlusCodec gdiplusCodec;
+WebpCodec webpCodec;
 
 int ObZrvDoc::initCodec()
 {
@@ -198,7 +200,17 @@ BOOL ObZrvDoc::OnOpenDocument(LPCTSTR lpszPathName)
 	DeleteContents();
 	SetModifiedFlag();  // dirty during de-serialize
 
-	int res = gdiplusCodec.open(lpszPathName, &_image);
+	Codec *codec = &gdiplusCodec;
+	// check ext
+	const wchar_t *pos = wcsrchr(lpszPathName, L'.');
+	if (!pos)
+		pos = lpszPathName + wcslen(lpszPathName);
+	else
+		++pos;
+	if (_wcsicmp(pos, L"webp") == 0)
+		codec = &webpCodec;
+
+	int res = codec->open(lpszPathName, &_image);
 
 	SetModifiedFlag(FALSE);     // start off with unmodified
 
