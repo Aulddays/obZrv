@@ -66,6 +66,12 @@
     <ClInclude Include="webp\types.h">
       <Filter>webp</Filter>
     </ClInclude>
+    <ClInclude Include="webp\demux.h">
+      <Filter>webp</Filter>
+    </ClInclude>
+    <ClInclude Include="webp\mux_types.h">
+      <Filter>webp</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="obZrv.cpp">

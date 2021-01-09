@@ -208,6 +208,8 @@
     <ClInclude Include="obZrv.h" />
     <ClInclude Include="WebpCodec.h" />
     <ClInclude Include="webp\decode.h" />
+    <ClInclude Include="webp\demux.h" />
+    <ClInclude Include="webp\mux_types.h" />
     <ClInclude Include="webp\types.h" />
     <ClInclude Include="ZDoc.h" />
     <ClInclude Include="Frame.h" />

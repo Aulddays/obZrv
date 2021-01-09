@@ -43,6 +43,7 @@ protected:
 	int _framecnt = 0;
 	std::vector<long> _framedelay;
 	int _loopnum = 0;
+	int _curfid = 0;	// current frame id
 
 	// bitmap object of current frame
 	BasicBitmap *_fbitmap = NULL;
@@ -183,13 +184,17 @@ public:
 		return _dimension;
 	}
 
-	virtual int getFrame(int idx)
+	virtual int nextFrame(bool rewind=false)
 	{
 		if (_framecnt <= 1)
 			return IM_OK;
 
-		if (idx >= _framecnt)
-			idx = idx % _framecnt;
+		if (rewind)
+			_curfid = 0;
+		else
+			++_curfid;
+		if (_curfid >= _framecnt)
+			return IM_NO_MORE_FRAMES;
 		if (!_gbitmap)	// if animated, must have kept _gbitmap open
 			return IM_FAIL;
 
@@ -200,7 +205,7 @@ public:
 
 		assert(_imgfmt == Gdiplus::ImageFormatGIF || _imgfmt == Gdiplus::ImageFormatTIFF);
 		GUID pageid = _imgfmt == Gdiplus::ImageFormatGIF ? Gdiplus::FrameDimensionTime : Gdiplus::FrameDimensionPage;
-		_gbitmap->SelectActiveFrame(&pageid, idx);
+		_gbitmap->SelectActiveFrame(&pageid, _curfid);
 
 		_fbitmap = gdiplusConvert(_gbitmap);
 		if (!_fbitmap)
@@ -214,9 +219,9 @@ public:
 		return _framecnt;
 	}
 
-	virtual long getFrameDelay(int fid) const
+	virtual long getFrameDelay() const
 	{
-		return _framedelay[fid];
+		return _framedelay[_curfid];
 	}
 
 	virtual int getLoopNum() const

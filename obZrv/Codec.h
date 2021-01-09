@@ -29,19 +29,28 @@ enum IM_ErrorCodes
 	IM_TOO_LARGE,
 	IM_NOT_SUPPORTED,
 	IM_READFILE_ERR,
+	IM_NO_MORE_FRAMES,
 };
 
 class Image
 {
 public:
 	virtual ~Image() { delete[] _filebuf; }
+
+	// impage properties
 	virtual SIZE getDimension() const = 0;
-	virtual int getFrame(int idx) = 0;
+	virtual bool isAnim() const { return getFrameCount() > 1; }
+
+	// Get transformed bitmap of current frame
 	virtual BasicBitmap *getBBitmap(RECT srcRect, SIZE outSize) = 0;
 
-	virtual int getFrameCount() const = 0;
-	virtual long getFrameDelay(int fid) const = 0;
+	// animation properties
 	virtual int getLoopNum() const = 0;
+	virtual int getFrameCount() const = 0;
+	// decode the next frame
+	virtual int nextFrame(bool rewind=false) = 0;
+	// get time delay of current frame, in ms
+	virtual long getFrameDelay() const = 0;
 
 protected:
 	// image file buffer
