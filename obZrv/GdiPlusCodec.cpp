@@ -124,9 +124,9 @@ protected:
 			Gdiplus::PropertyItem *propitem = (Gdiplus::PropertyItem *)propitembuf.data();
 			if (_gbitmap->GetPropertyItem(PropertyTagFrameDelay, propsize, propitem) != Gdiplus::Ok)
 				return IM_FAIL;
-			_framedelay.resize(propsize);
+			_framedelay.resize(framecnt);
 			long totaldelay = 0;
-			for (UINT i = 0; i < propsize; ++i)
+			for (UINT i = 0; i < framecnt; ++i)
 			{
 				_framedelay[i] = std::max(((long *)propitem->value)[i] * 10, 0l);
 				totaldelay += _framedelay[i];

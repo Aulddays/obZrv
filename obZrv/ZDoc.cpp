@@ -33,6 +33,7 @@
 #include "GdiPlusCodec.h"
 #include "WebpCodec.h"
 #include "ZView.h"
+#include "../AulddaysDpiHelper/AulddaysDpiHelper.h"
 
 #undef max
 #undef min
@@ -216,6 +217,97 @@ BOOL ObZrvDoc::OnOpenDocument(LPCTSTR lpszPathName)
 
 	if (res)
 		return FALSE;
+
+	// adjust window size
+	// get main window size & pos
+	CWnd *pMainfrm = AfxGetApp()->GetMainWnd();
+	WINDOWPLACEMENT winpos;
+	winpos.length = sizeof(winpos);
+	pMainfrm->GetWindowPlacement(&winpos);
+	MONITORINFO minfo;
+	CRect crect;
+	bool mok = false;	// if we've got enough information about the monitor
+	if (winpos.showCmd == SW_SHOWNORMAL)
+	{
+		// Get screen size
+		HMONITOR hmon = MonitorFromWindow(pMainfrm->GetSafeHwnd(), MONITOR_DEFAULTTONULL);
+		minfo.cbSize = sizeof(minfo);
+		if (hmon && GetMonitorInfo(hmon, &minfo))
+			mok = true;
+		// Get current view size
+		_view->GetClientRect(&crect);
+	}
+	if (mok)
+	{
+		// image size
+		int imw = _image->getDimension().cx;
+		int imh = _image->getDimension().cy;
+		// main frame size
+		int fw = ((CRect)winpos.rcNormalPosition).Width();
+		int fh = ((CRect)winpos.rcNormalPosition).Height();
+		// screen size
+		int sw = ((CRect)minfo.rcWork).Width();
+		int sh = ((CRect)minfo.rcWork).Height();
+		// max possible view size
+		int mw = sw - fw + crect.Width();
+		int mh = sh - fh + crect.Height();
+		// calculate the adapted view size
+		if (imw > mw && mw * imh <= mh * imw)
+		{
+			imh = std::min(mw * imh / imw + 1, mh);
+			imw = mw;
+		}
+		else if (imh > mh && mw * imh >= mh * imw)
+		{
+			imw = std::min(mh * imw / imh + 1, mw);
+			imh = mh;
+		}
+		int margin = (int)(10 * AulddaysDpiHelper::getScale(pMainfrm->GetSafeHwnd()));	// allow some margin
+		imw = std::min(std::max(imw + margin, (int)(400 * AulddaysDpiHelper::getScale(pMainfrm->GetSafeHwnd()))), mw);
+		imh = std::min(std::max(imh + margin, 20), mh);
+
+		// diff size
+		int dw = imw - crect.Width();
+		int dh = imh - crect.Height();
+
+		// adjust winpos
+		CRect npos = winpos.rcNormalPosition;
+		if (dw != 0)
+		{
+			npos.left -= dw / 2;
+			npos.right += dw - dw / 2;
+			// keep the window within monitor area
+			if (npos.right > minfo.rcWork.right)
+			{
+				npos.left = minfo.rcWork.right - npos.Width();
+				npos.right = minfo.rcWork.right;
+			}
+			if (npos.left < minfo.rcWork.left)
+			{
+				npos.right = minfo.rcWork.left + npos.Width();
+				npos.left = minfo.rcWork.left;
+			}
+		}
+		if (dh != 0)
+		{
+			npos.top -= dh / 2;
+			npos.bottom += dh - dh / 2;
+			// keep the window within monitor area. do bottom first, to force top in right place
+			if (npos.bottom > minfo.rcWork.bottom)
+			{
+				npos.top = minfo.rcWork.bottom - npos.Height();
+				npos.bottom = minfo.rcWork.bottom;
+			}
+			if (npos.top < minfo.rcWork.top)
+			{
+				npos.bottom = minfo.rcWork.top + npos.Height();
+				npos.top = minfo.rcWork.top;
+			}
+		}
+		winpos.rcNormalPosition = npos;
+		if (dw != 0 || dh != 0)
+			pMainfrm->SetWindowPlacement(&winpos);
+	}
 
 	_curframe = 0;
 	_curloop = 0;
