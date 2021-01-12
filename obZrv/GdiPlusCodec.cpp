@@ -256,7 +256,34 @@ public:
 		return _outBitmap;
 	}
 
-private:
+	virtual const wchar_t *getFormat() const
+	{
+		if (_imgfmt == Gdiplus::ImageFormatGIF)
+		{
+			if (isAnim())
+				return L"gif animated";
+			return L"gif";
+		}
+		if (_imgfmt == Gdiplus::ImageFormatTIFF)
+		{
+			if (isAnim())
+				return L"tiff animated";
+			return L"tiff";
+		}
+		else if (_imgfmt == Gdiplus::ImageFormatBMP)
+			return L"bmp";
+		else if (_imgfmt == Gdiplus::ImageFormatEMF)
+			return L"emf";
+		else if (_imgfmt == Gdiplus::ImageFormatWMF)
+			return L"wmf";
+		else if (_imgfmt == Gdiplus::ImageFormatJPEG)
+			return L"jpeg";
+		else if (_imgfmt == Gdiplus::ImageFormatPNG)
+			return L"png";
+		else if (_imgfmt == Gdiplus::ImageFormatIcon)
+			return L"icon";
+		return L"UNKNOWN";
+	}
 };
 
 GdiPlusCodec::GdiPlusCodec()

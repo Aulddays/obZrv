@@ -29,10 +29,12 @@
 #include <algorithm>
 #include <set>
 #include <string.h>
+#include <stdio.h>
 #include <propkey.h>
 #include "GdiPlusCodec.h"
 #include "WebpCodec.h"
 #include "ZView.h"
+#include "Frame.h"
 #include "../AulddaysDpiHelper/AulddaysDpiHelper.h"
 
 #undef max
@@ -218,6 +220,8 @@ BOOL ObZrvDoc::OnOpenDocument(LPCTSTR lpszPathName)
 	if (res)
 		return FALSE;
 
+	updateDir(lpszPathName, false);
+
 	// adjust window size
 	// get main window size & pos
 	CWnd *pMainfrm = AfxGetApp()->GetMainWnd();
@@ -318,6 +322,16 @@ BOOL ObZrvDoc::OnOpenDocument(LPCTSTR lpszPathName)
 		_totaldelay = _image->getFrameDelay();
 		_view->SetTimer((UINT_PTR)this, _image->getFrameDelay(), onAnimate);
 	}
+
+	// Update status text
+	enum { INFO_LEN = 1024 };
+	static wchar_t infobuf[INFO_LEN];
+	_snwprintf(infobuf, INFO_LEN, L"%d/%d | %s | %dx%d %s",
+		_diridx + 1, (int)_dirfiles.size(),
+		_dirfiles[_diridx].c_str(),
+		_image->getDimension().cx, _image->getDimension().cy, _image->getFormat());
+	((ObZrvFrm *)AfxGetMainWnd())->SetInfoText(infobuf);
+
 	return TRUE;
 }
 

@@ -218,6 +218,13 @@ public:
 		}
 		return IM_OK;
 	}
+	virtual const wchar_t *getFormat() const
+	{
+		if (isAnim())
+			return L"webp animated";
+		else
+			return L"webp";
+	}
 };
 
 

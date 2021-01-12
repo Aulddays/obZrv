@@ -40,6 +40,7 @@ public:
 	// impage properties
 	virtual SIZE getDimension() const = 0;
 	virtual bool isAnim() const { return getFrameCount() > 1; }
+	virtual const wchar_t *getFormat() const = 0;
 
 	// Get transformed bitmap of current frame
 	virtual BasicBitmap *getBBitmap(RECT srcRect, SIZE outSize) = 0;
@@ -51,6 +52,7 @@ public:
 	virtual int nextFrame(bool rewind=false) = 0;
 	// get time delay of current frame, in ms
 	virtual long getFrameDelay() const = 0;
+
 
 protected:
 	// image file buffer

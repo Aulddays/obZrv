@@ -39,6 +39,7 @@ public:
 
 // Operations
 public:
+	void SetInfoText(const wchar_t *txt);
 
 // Overrides
 public:

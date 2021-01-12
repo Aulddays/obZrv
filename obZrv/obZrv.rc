@@ -214,7 +214,7 @@ IDR_MAINFRAME ACCELERATORS
 BEGIN
     "N",            ID_FILE_NEW,            VIRTKEY, CONTROL
     "O",            ID_FILE_OPEN,           VIRTKEY, CONTROL
-    "S",            ID_FILE_SAVE_AS,           VIRTKEY, CONTROL
+    "S",            ID_FILE_SAVE_AS,        VIRTKEY, CONTROL
     "Z",            ID_EDIT_UNDO,           VIRTKEY, CONTROL
     "X",            ID_EDIT_CUT,            VIRTKEY, CONTROL
     "C",            ID_EDIT_COPY,           VIRTKEY, CONTROL
@@ -417,6 +417,7 @@ BEGIN
     IDS_STATUS_PANE2        "Pane 2"
     IDS_TOOLBAR_STANDARD    "Standard"
     IDS_TOOLBAR_CUSTOMIZE   "Customize..."
+    ID_INDICATOR_IMAGEINFO  "Ready"
 END
 
 STRINGTABLE

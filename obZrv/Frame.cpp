@@ -50,14 +50,6 @@ BEGIN_MESSAGE_MAP(ObZrvFrm, CFrameWndEx)
 	ON_MESSAGE(WM_DPICHANGED, &ObZrvFrm::OnDpichanged)
 END_MESSAGE_MAP()
 
-static UINT indicators[] =
-{
-	ID_SEPARATOR,           // status line indicator
-	ID_INDICATOR_CAPS,
-	ID_INDICATOR_NUM,
-	ID_INDICATOR_SCRL,
-};
-
 // ObZrvFrm construction/destruction
 
 ObZrvFrm::ObZrvFrm()
@@ -114,7 +106,16 @@ int ObZrvFrm::OnCreate(LPCREATESTRUCT lpCreateStruct)
 		TRACE0("Failed to create status bar\n");
 		return -1;      // fail to create
 	}
-	m_wndStatusBar.SetIndicators(indicators, sizeof(indicators)/sizeof(UINT));
+	static UINT indicators[] =
+	{
+		//ID_SEPARATOR,           // status line indicator
+		ID_INDICATOR_IMAGEINFO,
+		//ID_INDICATOR_CAPS,
+		//ID_INDICATOR_NUM,
+		//ID_INDICATOR_SCRL,
+	};
+	m_wndStatusBar.SetIndicators(indicators, sizeof(indicators) / sizeof(UINT));
+	m_wndStatusBar.SetPaneInfo(0, ID_INDICATOR_IMAGEINFO, SBPS_NORMAL | SBPS_STRETCH | SBPS_NOBORDERS, 1);
 
 	// TODO: Delete these five lines if you don't want the toolbar and menubar to be dockable
 	m_wndMenuBar.EnableDocking(CBRS_ALIGN_ANY);
@@ -334,5 +335,10 @@ void ObZrvFrm::updateDpi()
 	m_wndMenuBar.AdjustLayout();
 	m_wndToolBar.updateDpi();
 	m_wndStatusBar.AdjustLayout();
+}
+
+void ObZrvFrm::SetInfoText(const wchar_t *text)
+{
+	m_wndStatusBar.SetPaneText(0, text);
 }
 
