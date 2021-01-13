@@ -48,6 +48,7 @@ BEGIN_MESSAGE_MAP(ObZrvFrm, CFrameWndEx)
 	ON_UPDATE_COMMAND_UI_RANGE(ID_VIEW_APPLOOK_WIN_2000, ID_VIEW_APPLOOK_WINDOWS_7, &ObZrvFrm::OnUpdateApplicationLook)
 	ON_WM_SETTINGCHANGE()
 	ON_MESSAGE(WM_DPICHANGED, &ObZrvFrm::OnDpichanged)
+	ON_COMMAND(ID_INDICATOR_IMAGEINFO, NULL)	// status bar pane will be grayed out if missing this
 END_MESSAGE_MAP()
 
 // ObZrvFrm construction/destruction
@@ -115,7 +116,7 @@ int ObZrvFrm::OnCreate(LPCREATESTRUCT lpCreateStruct)
 		//ID_INDICATOR_SCRL,
 	};
 	m_wndStatusBar.SetIndicators(indicators, sizeof(indicators) / sizeof(UINT));
-	m_wndStatusBar.SetPaneInfo(0, ID_INDICATOR_IMAGEINFO, SBPS_NORMAL | SBPS_STRETCH | SBPS_NOBORDERS, 1);
+	m_wndStatusBar.SetPaneInfo(0, ID_INDICATOR_IMAGEINFO, SBPS_NORMAL | SBPS_STRETCH, 1);
 
 	// TODO: Delete these five lines if you don't want the toolbar and menubar to be dockable
 	m_wndMenuBar.EnableDocking(CBRS_ALIGN_ANY);
