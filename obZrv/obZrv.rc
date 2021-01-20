@@ -266,15 +266,15 @@ VS_VERSION_INFO VERSIONINFO
 BEGIN
     BLOCK "StringFileInfo"
     BEGIN
-        BLOCK "040904B0"
+        BLOCK "040904b0"
         BEGIN
-            VALUE "CompanyName", "TODO: <Company name>"
-            VALUE "FileDescription", "obZrv"
+            VALUE "CompanyName", "Aulddays (https://dev.aulddays.com/)"
+            VALUE "FileDescription", "obZrv - An image viewer"
             VALUE "FileVersion", "1.0.0.1"
             VALUE "InternalName", "obZrv.exe"
-            VALUE "LegalCopyright", "TODO: (c) <Company name>.  All rights reserved."
+            VALUE "LegalCopyright", "Copyright (c) Aulddays (https://dev.aulddays.com/).  All rights reserved."
             VALUE "OriginalFilename", "obZrv.exe"
-            VALUE "ProductName", "TODO: <Product name>"
+            VALUE "ProductName", "obZrv image viewer"
             VALUE "ProductVersion", "1.0.0.1"
         END
     END
@@ -417,12 +417,12 @@ BEGIN
     IDS_STATUS_PANE2        "Pane 2"
     IDS_TOOLBAR_STANDARD    "Standard"
     IDS_TOOLBAR_CUSTOMIZE   "Customize..."
-    ID_INDICATOR_IMAGEINFO  "Ready"
 END
 
 STRINGTABLE
 BEGIN
     IDS_EDIT_MENU           "Edit"
+    ID_INDICATOR_IMAGEINFO  "Ready"
 END
 
 #endif    // English (United States) resources
