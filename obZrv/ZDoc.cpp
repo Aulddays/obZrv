@@ -326,10 +326,14 @@ BOOL ObZrvDoc::OnOpenDocument(LPCTSTR lpszPathName)
 	// Update status text
 	enum { INFO_LEN = 1024 };
 	static wchar_t infobuf[INFO_LEN];
-	_snwprintf(infobuf, INFO_LEN, L"%d/%d | %s | %dx%d %s",
+	static char framebuf[20];
+	_snwprintf(infobuf, INFO_LEN, L"%d/%d | %s | %dx%d%S%S %s",
 		_diridx + 1, (int)_dirfiles.size(),
 		_dirfiles[_diridx].c_str(),
-		_image->getDimension().cx, _image->getDimension().cy, _image->getFormat());
+		_image->getDimension().cx, _image->getDimension().cy,
+		_image->isAnim() ? "x" : "",
+		_image->isAnim() ? _itoa(_image->getFrameCount(), framebuf, 10) : "",
+		_image->getFormat());
 	((ObZrvFrm *)AfxGetMainWnd())->SetInfoText(infobuf);
 
 	return TRUE;

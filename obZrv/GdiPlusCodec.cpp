@@ -259,17 +259,9 @@ public:
 	virtual const wchar_t *getFormat() const
 	{
 		if (_imgfmt == Gdiplus::ImageFormatGIF)
-		{
-			if (isAnim())
-				return L"gif animated";
 			return L"gif";
-		}
-		if (_imgfmt == Gdiplus::ImageFormatTIFF)
-		{
-			if (isAnim())
-				return L"tiff animated";
+		else if (_imgfmt == Gdiplus::ImageFormatTIFF)
 			return L"tiff";
-		}
 		else if (_imgfmt == Gdiplus::ImageFormatBMP)
 			return L"bmp";
 		else if (_imgfmt == Gdiplus::ImageFormatEMF)
