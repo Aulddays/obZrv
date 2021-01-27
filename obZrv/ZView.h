@@ -65,6 +65,44 @@ public:
 	afx_msg BOOL OnEraseBkgnd(CDC* pDC);
 	void fillBg(CDC *pDC);
 	afx_msg void OnKeyDown(UINT nChar, UINT nRepCnt, UINT nFlags);
+
+protected:
+	// configs
+	enum ZoomType
+	{
+		ZT_FITIMAGE,
+	} _zoomtype = ZT_FITIMAGE;
+	// adjust window size to fit the image
+	void fitWindow2Image(Image *image, CPoint mousepos);
+
+	// zoom levels
+	int _zoomlevel = 0;
+	int _fitlevel = 0;	// actual zoom level if in fit mode
+
+	BasicBitmap *_viewBitmap = NULL;	// bitmap of current view
+	bool _internalBitmap = false;	// is _viewBitmap the internal one from doc? used when showing whole image without zoom
+	void releaseBitmap()
+	{
+		if (!_internalBitmap)
+			delete _viewBitmap;
+		_viewBitmap = NULL;
+		_internalBitmap = false;
+	}
+	CRect _viewRect = { -1, -1, -1, -1 };		// rect of current view mapped into the original image
+	CSize _viewDim = { -1, -1 };	// size of current image view
+	CSize _viewWndDim = { -1, -1 };	// size of view window. may differ from _viewDim if the image is (maybe zoomed) small
+
+	// helpers to preserve mouse position on toolbar buttons after window size change
+	CPoint preserveMouse(int id);
+	void applyMouse(CPoint &pos);
+
+public:
+	// called by the doc when a new image was just opened and decoded
+	void onFileOpened(int cmdid);
+	// called by the doc when a new frame of the (animated) image is to show
+	void onFrameUpdate();
+	// update status text
+	void updateStatus();
 };
 
 #ifndef _DEBUG  // debug version in ObZrvView.cpp

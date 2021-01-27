@@ -98,11 +98,13 @@ IDR_MAINFRAME_256       BITMAP                  "res\\Toolbar256.bmp"
 // Toolbar
 //
 
-IDR_MAINFRAME TOOLBAR 16, 15
+IDR_MAINFRAME TOOLBAR 16, 16
 BEGIN
     BUTTON      ID_FILE_OPEN
     BUTTON      ID_FILE_SAVE_AS
     SEPARATOR
+    BUTTON      ID_VIEW_ZOOMIN
+    BUTTON      ID_VIEW_ZOOMOUT
     BUTTON      ID_EDIT_CUT
     BUTTON      ID_EDIT_COPY
     BUTTON      ID_EDIT_PASTE
@@ -111,11 +113,14 @@ BEGIN
     BUTTON      ID_APP_ABOUT
 END
 
-IDR_MAINFRAME_256 TOOLBAR 16, 15
+IDR_MAINFRAME_256 TOOLBAR 16, 16
 BEGIN
+    BUTTON      ID_FILE_PREV
+    BUTTON      ID_FILE_NEXT
+    BUTTON      ID_VIEW_ZOOMIN
+    BUTTON      ID_VIEW_ZOOMOUT
     BUTTON      ID_FILE_OPEN
     BUTTON      ID_FILE_SAVE_AS
-    SEPARATOR
     BUTTON      ID_EDIT_CUT
     BUTTON      ID_EDIT_COPY
     BUTTON      ID_EDIT_PASTE
@@ -137,6 +142,9 @@ BEGIN
         MENUITEM "&Open...\tCtrl+O",            ID_FILE_OPEN
         MENUITEM "Save &As...\tCtrl+S",         ID_FILE_SAVE_AS
         MENUITEM SEPARATOR
+        MENUITEM "Previous Image",              ID_FILE_PREV
+        MENUITEM "Next Image",                  ID_FILE_NEXT
+        MENUITEM SEPARATOR
         MENUITEM "Recent File",                 ID_FILE_MRU_FILE1, GRAYED
         MENUITEM SEPARATOR
         MENUITEM "E&xit",                       ID_APP_EXIT
@@ -151,6 +159,8 @@ BEGIN
     END
     POPUP "&View"
     BEGIN
+        MENUITEM "Zoom In\t+ / RButton drag",   ID_VIEW_ZOOMIN
+        MENUITEM "Zoom Out\t- / RButton drag",  ID_VIEW_ZOOMOUT
         POPUP "&Toolbars and Docking Windows"
         BEGIN
             MENUITEM "<placeholder>",               ID_VIEW_TOOLBAR
@@ -423,6 +433,14 @@ STRINGTABLE
 BEGIN
     IDS_EDIT_MENU           "Edit"
     ID_INDICATOR_IMAGEINFO  "Ready"
+END
+
+STRINGTABLE
+BEGIN
+    ID_VIEW_ZOOMIN          "Zoom In\nZoom In (+|RButton drag)"
+    ID_VIEW_ZOOMOUT         "Zoom Out\nZoom Out (-|RButton drag)"
+    ID_FILE_PREV            "Previous Image\tPrevious Image"
+    ID_FILE_NEXT            "Next Image\tNext Image"
 END
 
 #endif    // English (United States) resources

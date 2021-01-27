@@ -55,10 +55,6 @@ protected:
 
 	// (resized) output bitmap of current frame
 	Gdiplus::Color _bgcolor{ 240, 240, 240 };
-	//HBITMAP _hOutBitmap = NULL;
-	BasicBitmap *_outBitmap = NULL;
-	RECT _outRect;
-	SIZE _outDim;
 
 	int open(const wchar_t *filename)
 	{
@@ -173,7 +169,6 @@ public:
 		//	DeleteObject(_hOutBitmap);
 		//delete _bitmap;
 		delete _fbitmap;
-		delete _outBitmap;
 		delete _gbitmap;
 		if (_gstream)
 			_gstream->Release();
@@ -200,8 +195,6 @@ public:
 
 		delete _fbitmap;
 		_fbitmap = NULL;
-		delete _outBitmap;
-		_outBitmap = NULL;
 
 		assert(_imgfmt == Gdiplus::ImageFormatGIF || _imgfmt == Gdiplus::ImageFormatTIFF);
 		GUID pageid = _imgfmt == Gdiplus::ImageFormatGIF ? Gdiplus::FrameDimensionTime : Gdiplus::FrameDimensionPage;
@@ -231,29 +224,11 @@ public:
 
 	BasicBitmap *getBBitmap(RECT srcRect, SIZE outDim)
 	{
-		// if same as the one buffered, use it directly
-		if (_outBitmap && srcRect == _outRect && outDim == _outDim)
-			return _outBitmap;
-		if (!_fbitmap)	// no opened image
-			return NULL;
-		if (!(srcRect.left >= 0 && srcRect.right > srcRect.left && srcRect.top >= 0 && srcRect.bottom > srcRect.top &&
-			srcRect.right <= _dimension.cx && srcRect.bottom <= _dimension.cy && outDim.cx > 0 && outDim.cy > 0))
-			return NULL;	// invalid input paramerters
-
-		// if the whole image without scaling is required, just return the original bitmap
-		if (srcRect.top == 0 && srcRect.left == 0 && srcRect.bottom == _dimension.cy && srcRect.right == _dimension.cx && outDim == _dimension)
-			return _fbitmap;
-
-		delete _outBitmap;	// delete the buffered one
-		_outBitmap = NULL;
-		_outRect = srcRect;
-		_outDim = outDim;
-
 		// crop & scale
-		_outBitmap = new BasicBitmap(outDim.cx, outDim.cy, _fbitmap->Format());
-		_outBitmap->Resample(0, 0, outDim.cx, outDim.cy, _fbitmap,
+		BasicBitmap *outBitmap = new BasicBitmap(outDim.cx, outDim.cy, _fbitmap->Format());
+		outBitmap->Resample(0, 0, outDim.cx, outDim.cy, _fbitmap,
 			srcRect.left, srcRect.top, srcRect.right, srcRect.bottom, BasicBitmap::BILINEAR);
-		return _outBitmap;
+		return outBitmap;
 	}
 
 	virtual const wchar_t *getFormat() const

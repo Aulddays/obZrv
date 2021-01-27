@@ -33,6 +33,8 @@ class ObZrvView;
 
 class ObZrvDoc : public CDocument
 {
+	friend ObZrvView;
+
 protected: // create from serialization only
 	ObZrvDoc();
 	DECLARE_DYNCREATE(ObZrvDoc)
@@ -40,6 +42,7 @@ protected: // create from serialization only
 	// Attributes
 public:
 	BasicBitmap *getBBitmap(SIZE &size);
+	Image *getImage() { return _image; }
 
 protected:
 	ObZrvView *_view = NULL;
@@ -60,6 +63,15 @@ protected:
 	int _diridx = -1;
 	// update dirfiles, if preservlast is false and filename is in old _dir, do not update _dir
 	int updateDir(const wchar_t *filename, bool preservelast = false);
+	int _cmdid = -1;
+
+	// zooming
+	enum ZoomType
+	{
+		ZT_FITIMAGE,
+	} _zoomtype;
+	int _zoomlevel = 0;
+	int _fitlevel = 0;	// actual zoom level if in fit mode
 
 	// Operations
 public:
@@ -70,10 +82,14 @@ public:
 	{
 		NAV_FIRST,
 		NAV_LAST,
-		NAV_PREV,
-		NAV_NEXT,
+		NAV_PREV = ID_FILE_PREV,
+		NAV_NEXT = ID_FILE_NEXT,
 	};
 	int navigate(NavCmd cmd);
+	afx_msg void OnNavPrev() { _cmdid = NAV_PREV; navigate(NAV_PREV); _cmdid = -1; }
+	afx_msg void OnNavNext() { _cmdid = NAV_NEXT; navigate(NAV_NEXT); _cmdid = -1; }
+	afx_msg void OnUpdateNavPrevNext(CCmdUI *pCmdUI);
+	//afx_msg void OnUpdateNavNext(CCmdUI *pCmdUI);
 
 // Overrides
 public:
@@ -107,4 +123,13 @@ public:
 	virtual void DeleteContents();
 	afx_msg void OnFileSave();
 	virtual BOOL OnSaveDocument(LPCTSTR lpszPathName);
+
+protected:
+
+	afx_msg void OnZoomIn();
+	afx_msg void OnZoomOut();
+	afx_msg void OnUpdateZoomIn(CCmdUI *pCmdUI);
+	afx_msg void OnUpdateZoomOut(CCmdUI *pCmdUI);
+	int zoom(int inout, bool test = false);
+public:
 };

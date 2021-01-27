@@ -28,8 +28,15 @@
 #include "obZrv.h"
 #endif
 
+#include <algorithm>
+#include <functional>
 #include "ZDoc.h"
 #include "ZView.h"
+#include "Frame.h"
+#include "../AulddaysDpiHelper/AulddaysDpiHelper.h"
+
+#undef max
+#undef min
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -57,6 +64,7 @@ ObZrvView::ObZrvView()
 
 ObZrvView::~ObZrvView()
 {
+	releaseBitmap();
 }
 
 BOOL ObZrvView::PreCreateWindow(CREATESTRUCT& cs)
@@ -73,7 +81,8 @@ void ObZrvView::OnDraw(CDC* pDc)
 {
 	ObZrvDoc* pDoc = GetDocument();
 	ASSERT_VALID(pDoc);
-	if (!pDoc)
+	Image *image = pDoc ? pDoc->getImage() : NULL;
+	if (!pDoc || !image)
 	{
 		fillBg(pDc);
 		return;
@@ -82,26 +91,100 @@ void ObZrvView::OnDraw(CDC* pDc)
 	CRect rect, crect;
 	GetClientRect(rect);
 	crect = rect;
-	SIZE size = { rect.Width(), rect.Height() };
+	CSize size = { rect.Width(), rect.Height() };
 
-	BasicBitmap *pBitmap = pDoc->getBBitmap(size);
-	if (!pBitmap)
+	if (!_viewBitmap || _viewRect.left < 0 || _viewDim.cx < 0 || size != _viewWndDim)		// need update viewBitmap
+	{
+		CRect oldViewRect = _viewRect;
+		CSize oldViewDim = _viewDim;
+		if (_zoomtype == ZT_FITIMAGE && _zoomlevel == 0)
+		{
+			_viewRect = CRect{ 0, 0, image->getDimension().cx, image->getDimension().cy };
+			if (size.cx >= image->getDimension().cx && size.cy >= image->getDimension().cy)
+			{
+				_viewDim.cx = image->getDimension().cx;
+				_viewDim.cy = image->getDimension().cy;
+				_fitlevel = 100;
+			}
+			else if ((uint64_t)size.cx * image->getDimension().cy > (uint64_t)size.cy * image->getDimension().cx)
+			{
+				_viewDim.cx = (LONG)((double)size.cy * image->getDimension().cx / image->getDimension().cy + 0.5);
+				_viewDim.cx = std::max(_viewDim.cx, 1l);
+				_viewDim.cy = size.cy;
+				_fitlevel = size.cy * 100 / image->getDimension().cy;
+			}
+			else
+			{
+				assert((uint64_t)size.cx * image->getDimension().cy <= (uint64_t)size.cy * image->getDimension().cx);
+				_viewDim.cy = (LONG)((double)size.cx * image->getDimension().cy / image->getDimension().cx + 0.5);
+				_viewDim.cy = std::max(_viewDim.cy, 1l);
+				_viewDim.cx = size.cx;
+				_fitlevel = size.cx * 100 / image->getDimension().cx;
+			}
+		}
+		else
+		{
+			// must have been a window size change
+			assert(size != _viewWndDim && _viewRect.left >= 0 || _viewDim.cx >= 0);
+			// keep the upper-left point in current view not changed
+			_viewRect.right = _viewRect.left + rect.Width() * 100 / _zoomlevel;
+			if (_viewRect.right > image->getDimension().cx)
+			{
+				_viewRect.right = image->getDimension().cx;
+				_viewRect.left = _viewRect.right - rect.Width() * 100 / _zoomlevel;
+				if (_viewRect.left < 0)
+				{
+					_viewRect.left = 0;
+					_viewDim.cx = std::max(image->getDimension().cx * _zoomlevel / 100, 1l);
+				}
+				else
+					_viewDim.cx = size.cx;
+			}
+			else
+				_viewDim.cx = size.cx;
+			_viewRect.bottom = _viewRect.top + rect.Height() * 100 / _zoomlevel;
+			if (_viewRect.bottom > image->getDimension().cy)
+			{
+				_viewRect.bottom = image->getDimension().cy;
+				_viewRect.top = _viewRect.bottom - rect.Height() * 100 / _zoomlevel;
+				if (_viewRect.top < 0)
+				{
+					_viewRect.top = 0;
+					_viewDim.cy = std::max(image->getDimension().cy * _zoomlevel / 100, 1l);
+				}
+				else
+					_viewDim.cy = size.cy;
+			}
+			else
+				_viewDim.cy = size.cy;
+		}
+
+		_viewWndDim = size;
+		if (oldViewRect != _viewRect || oldViewDim != _viewDim)
+			releaseBitmap();
+		if (!_viewBitmap)
+			_viewBitmap = image->getBBitmap(_viewRect, _viewDim);
+		updateStatus();
+	}
+
+	if (!_viewBitmap)
 	{
 		fillBg(pDc);
 		return;
 	}
 	// calculate the output rect
-	if (rect.Width() > size.cx)
+	if (rect.Width() > _viewDim.cx)
 	{
-		rect.left = (rect.Width() - size.cx) / 2;
-		rect.right = rect.left + size.cx;
+		rect.left = (rect.Width() - _viewDim.cx) / 2;
+		rect.right = rect.left + _viewDim.cx;
 	}
-	if (rect.Height() > size.cy)
+	if (rect.Height() > _viewDim.cy)
 	{
-		rect.top = (rect.Height() - size.cy) / 2;
-		rect.bottom = rect.top + size.cy;
+		rect.top = (rect.Height() - _viewDim.cy) / 2;
+		rect.bottom = rect.top + _viewDim.cy;
 	}
-	pBitmap->SetDIBitsToDevice(pDc->GetSafeHdc(), rect.left, rect.top, 0, 0, pBitmap->Width(), pBitmap->Height());
+	assert(_viewBitmap->Width() == _viewDim.cx && _viewBitmap->Height() == _viewDim.cy);
+	_viewBitmap->SetDIBitsToDevice(pDc->GetSafeHdc(), rect.left, rect.top, 0, 0, _viewDim.cx, _viewDim.cy);
 	if (rect.left > 0)
 		pDc->FillSolidRect(0, 0, rect.left, crect.bottom, _bgColor);
 	if (rect.right != crect.right)
@@ -200,4 +283,198 @@ void ObZrvView::OnKeyDown(UINT nChar, UINT nRepCnt, UINT nFlags)
 	}
 
 	CView::OnKeyDown(nChar, nRepCnt, nFlags);
+}
+
+void ObZrvView::onFileOpened(int cmdid)
+{
+	Image *image = GetDocument()->getImage();
+	if (!image)
+		return;
+
+	// ZT_FITIMAGE: adjust window size to fit the image
+	CPoint mousepos = preserveMouse(cmdid);
+	if (_zoomtype == ZT_FITIMAGE)
+	{
+		fitWindow2Image(image, mousepos);
+	}
+}
+
+// adjust window size to fit the image
+void ObZrvView::fitWindow2Image(Image *image, CPoint mousepos)
+{
+	// get main window size & pos
+	CWnd *pMainfrm = AfxGetApp()->GetMainWnd();
+	WINDOWPLACEMENT winpos;
+	winpos.length = sizeof(winpos);
+	pMainfrm->GetWindowPlacement(&winpos);
+	MONITORINFO minfo;
+	CRect crect;
+	bool mok = false;	// if we've got enough information about the monitor
+	if (winpos.showCmd == SW_SHOWNORMAL)
+	{
+		// Get screen size
+		HMONITOR hmon = MonitorFromWindow(pMainfrm->GetSafeHwnd(), MONITOR_DEFAULTTONULL);
+		minfo.cbSize = sizeof(minfo);
+		if (hmon && GetMonitorInfo(hmon, &minfo))
+			mok = true;
+		// Get current view size
+		GetClientRect(&crect);
+	}
+	if (mok)
+	{
+		// image size
+		int imw = image->getDimension().cx;
+		int imh = image->getDimension().cy;
+		// main frame size
+		int fw = ((CRect)winpos.rcNormalPosition).Width();
+		int fh = ((CRect)winpos.rcNormalPosition).Height();
+		// screen size
+		int sw = ((CRect)minfo.rcWork).Width();
+		int sh = ((CRect)minfo.rcWork).Height();
+		// max possible view size
+		int mw = sw - fw + crect.Width();
+		int mh = sh - fh + crect.Height();
+		// calculate the adapted view size
+		if (imw > mw && mw * imh <= mh * imw)
+		{
+			imh = std::min(mw * imh / imw + 1, mh);
+			imw = mw;
+		}
+		else if (imh > mh && mw * imh >= mh * imw)
+		{
+			imw = std::min(mh * imw / imh + 1, mw);
+			imh = mh;
+		}
+		int margin = (int)(10 * AulddaysDpiHelper::getScale(pMainfrm->GetSafeHwnd()));	// allow some margin
+		imw = std::min(std::max(imw + margin, (int)(400 * AulddaysDpiHelper::getScale(pMainfrm->GetSafeHwnd()))), mw);
+		imh = std::min(std::max(imh + margin, 20), mh);
+
+		// diff size
+		int dw = imw - crect.Width();
+		int dh = imh - crect.Height();
+
+		// adjust winpos
+		CRect npos = winpos.rcNormalPosition;
+		if (dw != 0)
+		{
+			npos.left -= dw / 2;
+			npos.right += dw - dw / 2;
+			// keep the window within monitor area
+			if (npos.right > minfo.rcWork.right)
+			{
+				npos.left = minfo.rcWork.right - npos.Width();
+				npos.right = minfo.rcWork.right;
+			}
+			if (npos.left < minfo.rcWork.left)
+			{
+				npos.right = minfo.rcWork.left + npos.Width();
+				npos.left = minfo.rcWork.left;
+			}
+		}
+		if (dh != 0)
+		{
+			npos.top -= dh / 2;
+			npos.bottom += dh - dh / 2;
+			// keep the window within monitor area. do bottom first, to force top in right place
+			if (npos.bottom > minfo.rcWork.bottom)
+			{
+				npos.top = minfo.rcWork.bottom - npos.Height();
+				npos.bottom = minfo.rcWork.bottom;
+			}
+			if (npos.top < minfo.rcWork.top)
+			{
+				npos.bottom = minfo.rcWork.top + npos.Height();
+				npos.top = minfo.rcWork.top;
+			}
+		}
+		winpos.rcNormalPosition = npos;
+		if (dw != 0 || dh != 0)
+		{
+			pMainfrm->SetWindowPlacement(&winpos);
+			if (mousepos.x >= 0)
+			{
+				mousepos.Offset(npos.TopLeft());
+				SetCursorPos(mousepos.x, mousepos.y);
+			}
+		}
+	}
+	_zoomlevel = 0;
+	releaseBitmap();
+	_viewRect = CRect{0, 0, image->getDimension().cx, image->getDimension().cy};
+	_viewDim = CSize{-1, -1};
+	Invalidate(FALSE);
+}
+
+void ObZrvView::onFrameUpdate()
+{
+	releaseBitmap();
+	Image *image = GetDocument()->getImage();
+	if (image)
+		_viewBitmap = image->getBBitmap(_viewRect, _viewDim);
+	Invalidate(FALSE);
+}
+
+// Update status text
+void ObZrvView::updateStatus()
+{
+	Image *image = GetDocument()->getImage();
+	if (!image)
+		return;
+
+	enum { INFO_LEN = 1024 };
+	static wchar_t infobuf[INFO_LEN];
+	static char framebuf[20];
+	_snwprintf(infobuf, INFO_LEN, L"%d/%d | %s | %dx%d%S%S %s | %d%%",
+		GetDocument()->_diridx + 1, (int)GetDocument()->_dirfiles.size(),
+		GetDocument()->_dirfiles[GetDocument()->_diridx].c_str(),
+		image->getDimension().cx, image->getDimension().cy,
+		image->isAnim() ? "x" : "",
+		image->isAnim() ? _itoa(image->getFrameCount(), framebuf, 10) : "",
+		image->getFormat(), _zoomlevel != 0 ? _zoomlevel : _fitlevel);
+	((ObZrvFrm *)AfxGetMainWnd())->SetInfoText(infobuf);
+}
+
+CPoint ObZrvView::preserveMouse(int id)
+{
+	if (id < 0)
+		return CPoint{ -1, -1 };
+	// get cursor pos
+	CPoint curpos;
+	GetCursorPos(&curpos);
+	// enumerate toolbars
+	const CObList &toolbars = CMFCToolBar::GetAllToolbars();
+	for (POSITION postoolbar = toolbars.GetHeadPosition(); postoolbar != NULL; )
+	{
+		const CMFCToolBar *toolbar = (const CMFCToolBar *)toolbars.GetNext(postoolbar);
+		// check whether cursor inside the toolbar
+		CPoint tbpos = curpos;
+		toolbar->ScreenToClient(&tbpos);
+		CRect rectToolbar;
+		toolbar->GetClientRect(&rectToolbar);
+		if (!rectToolbar.PtInRect(tbpos))
+			continue;
+		// enumerate toolbar buttons
+		const CObList &buttons = toolbar->GetAllButtons();
+		for (POSITION posbutton = buttons.GetHeadPosition(); posbutton != NULL;)
+		{
+			const CMFCToolBarButton *button = (const CMFCToolBarButton *)buttons.GetNext(posbutton);
+			// whether cursor inside the button
+			if (button->Rect().PtInRect(tbpos) && !button->IsHidden())
+			{
+				if (button->m_nID == id)	// right the button requested
+				{
+					// convert curpos to be relative to the frame window
+					CRect rectFrame;
+					AfxGetMainWnd()->GetWindowRect(&rectFrame);
+					curpos.Offset(-rectFrame.TopLeft());
+					TRACE("Preserve toolbar ID %d, pos (%d:%d)\n", id, curpos.x, curpos.y);
+					return curpos;
+				}
+				else
+					return CPoint{ -1, -1 };
+			}
+		}
+	}
+	// not inside any toolbar button
+	return CPoint{ -1, -1 };
 }

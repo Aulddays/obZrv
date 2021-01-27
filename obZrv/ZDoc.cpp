@@ -27,6 +27,7 @@
 
 #include <stdint.h>
 #include <algorithm>
+#include <functional>
 #include <set>
 #include <string.h>
 #include <stdio.h>
@@ -50,6 +51,14 @@ IMPLEMENT_DYNCREATE(ObZrvDoc, CDocument)
 
 BEGIN_MESSAGE_MAP(ObZrvDoc, CDocument)
 	ON_COMMAND(ID_FILE_SAVE, &ObZrvDoc::OnFileSave)
+	ON_COMMAND(ID_VIEW_ZOOMIN, &ObZrvDoc::OnZoomIn)
+	ON_COMMAND(ID_VIEW_ZOOMOUT, &ObZrvDoc::OnZoomOut)
+	ON_UPDATE_COMMAND_UI(ID_VIEW_ZOOMIN, &ObZrvDoc::OnUpdateZoomIn)
+	ON_UPDATE_COMMAND_UI(ID_VIEW_ZOOMOUT, &ObZrvDoc::OnUpdateZoomOut)
+	ON_COMMAND(ID_FILE_PREV, &ObZrvDoc::OnNavPrev)
+	ON_COMMAND(ID_FILE_NEXT, &ObZrvDoc::OnNavNext)
+	ON_UPDATE_COMMAND_UI(ID_FILE_PREV, &ObZrvDoc::OnUpdateNavPrevNext)
+	ON_UPDATE_COMMAND_UI(ID_FILE_NEXT, &ObZrvDoc::OnUpdateNavPrevNext)
 END_MESSAGE_MAP()
 
 const static wchar_t DIRSEP = L'\\';
@@ -87,9 +96,6 @@ BOOL ObZrvDoc::OnNewDocument()
 
 	return TRUE;
 }
-
-
-
 
 // ObZrvDoc serialization
 
@@ -222,96 +228,7 @@ BOOL ObZrvDoc::OnOpenDocument(LPCTSTR lpszPathName)
 
 	updateDir(lpszPathName, false);
 
-	// adjust window size
-	// get main window size & pos
-	CWnd *pMainfrm = AfxGetApp()->GetMainWnd();
-	WINDOWPLACEMENT winpos;
-	winpos.length = sizeof(winpos);
-	pMainfrm->GetWindowPlacement(&winpos);
-	MONITORINFO minfo;
-	CRect crect;
-	bool mok = false;	// if we've got enough information about the monitor
-	if (winpos.showCmd == SW_SHOWNORMAL)
-	{
-		// Get screen size
-		HMONITOR hmon = MonitorFromWindow(pMainfrm->GetSafeHwnd(), MONITOR_DEFAULTTONULL);
-		minfo.cbSize = sizeof(minfo);
-		if (hmon && GetMonitorInfo(hmon, &minfo))
-			mok = true;
-		// Get current view size
-		_view->GetClientRect(&crect);
-	}
-	if (mok)
-	{
-		// image size
-		int imw = _image->getDimension().cx;
-		int imh = _image->getDimension().cy;
-		// main frame size
-		int fw = ((CRect)winpos.rcNormalPosition).Width();
-		int fh = ((CRect)winpos.rcNormalPosition).Height();
-		// screen size
-		int sw = ((CRect)minfo.rcWork).Width();
-		int sh = ((CRect)minfo.rcWork).Height();
-		// max possible view size
-		int mw = sw - fw + crect.Width();
-		int mh = sh - fh + crect.Height();
-		// calculate the adapted view size
-		if (imw > mw && mw * imh <= mh * imw)
-		{
-			imh = std::min(mw * imh / imw + 1, mh);
-			imw = mw;
-		}
-		else if (imh > mh && mw * imh >= mh * imw)
-		{
-			imw = std::min(mh * imw / imh + 1, mw);
-			imh = mh;
-		}
-		int margin = (int)(10 * AulddaysDpiHelper::getScale(pMainfrm->GetSafeHwnd()));	// allow some margin
-		imw = std::min(std::max(imw + margin, (int)(400 * AulddaysDpiHelper::getScale(pMainfrm->GetSafeHwnd()))), mw);
-		imh = std::min(std::max(imh + margin, 20), mh);
-
-		// diff size
-		int dw = imw - crect.Width();
-		int dh = imh - crect.Height();
-
-		// adjust winpos
-		CRect npos = winpos.rcNormalPosition;
-		if (dw != 0)
-		{
-			npos.left -= dw / 2;
-			npos.right += dw - dw / 2;
-			// keep the window within monitor area
-			if (npos.right > minfo.rcWork.right)
-			{
-				npos.left = minfo.rcWork.right - npos.Width();
-				npos.right = minfo.rcWork.right;
-			}
-			if (npos.left < minfo.rcWork.left)
-			{
-				npos.right = minfo.rcWork.left + npos.Width();
-				npos.left = minfo.rcWork.left;
-			}
-		}
-		if (dh != 0)
-		{
-			npos.top -= dh / 2;
-			npos.bottom += dh - dh / 2;
-			// keep the window within monitor area. do bottom first, to force top in right place
-			if (npos.bottom > minfo.rcWork.bottom)
-			{
-				npos.top = minfo.rcWork.bottom - npos.Height();
-				npos.bottom = minfo.rcWork.bottom;
-			}
-			if (npos.top < minfo.rcWork.top)
-			{
-				npos.bottom = minfo.rcWork.top + npos.Height();
-				npos.top = minfo.rcWork.top;
-			}
-		}
-		winpos.rcNormalPosition = npos;
-		if (dw != 0 || dh != 0)
-			pMainfrm->SetWindowPlacement(&winpos);
-	}
+	_view->onFileOpened(_cmdid);
 
 	_curframe = 0;
 	_curloop = 0;
@@ -323,53 +240,17 @@ BOOL ObZrvDoc::OnOpenDocument(LPCTSTR lpszPathName)
 		_view->SetTimer((UINT_PTR)this, _image->getFrameDelay(), onAnimate);
 	}
 
-	// Update status text
-	enum { INFO_LEN = 1024 };
-	static wchar_t infobuf[INFO_LEN];
-	static char framebuf[20];
-	_snwprintf(infobuf, INFO_LEN, L"%d/%d | %s | %dx%d%S%S %s",
-		_diridx + 1, (int)_dirfiles.size(),
-		_dirfiles[_diridx].c_str(),
-		_image->getDimension().cx, _image->getDimension().cy,
-		_image->isAnim() ? "x" : "",
-		_image->isAnim() ? _itoa(_image->getFrameCount(), framebuf, 10) : "",
-		_image->getFormat());
-	((ObZrvFrm *)AfxGetMainWnd())->SetInfoText(infobuf);
+	_view->updateStatus();
 
 	return TRUE;
 }
 
 void ObZrvDoc::DeleteContents()
 {
-	// TODO: Add your specialized code here and/or call the base class
 	delete _image;
 	_image = NULL;
+	_diridx = -1;
 }
-
-BasicBitmap *ObZrvDoc::getBBitmap(SIZE &size)
-{
-	if (!_image || size.cx <= 0 || size.cy <= 0)
-		return NULL;
-	//_image->getFrame();
-	RECT srcRect = { 0, 0, _image->getDimension().cx, _image->getDimension().cy };
-	if (size.cx >= _image->getDimension().cx && size.cy >= _image->getDimension().cy)
-	{
-		size.cx = _image->getDimension().cx;
-		size.cy = _image->getDimension().cy;
-	}
-	else if ((uint64_t)size.cx * _image->getDimension().cy > (uint64_t)size.cy * _image->getDimension().cx)
-	{
-		size.cx = (LONG)((double)size.cy * _image->getDimension().cx / _image->getDimension().cy + 0.5);
-		size.cx = std::max(size.cx, 1l);
-	}
-	else if ((uint64_t)size.cx * _image->getDimension().cy < (uint64_t)size.cy * _image->getDimension().cx)
-	{
-		size.cy = (LONG)((double)size.cx * _image->getDimension().cy / _image->getDimension().cx + 0.5);
-		size.cy = std::max(size.cy, 1l);
-	}
-	return _image->getBBitmap(srcRect, size);
-}
-
 
 void ObZrvDoc::OnFileSave()
 {
@@ -379,8 +260,6 @@ void ObZrvDoc::OnFileSave()
 
 BOOL ObZrvDoc::OnSaveDocument(LPCTSTR lpszPathName)
 {
-	// TODO: Add your specialized code here and/or call the base class
-
 	//return CDocument::OnSaveDocument(lpszPathName);
 	return TRUE;
 }
@@ -470,6 +349,16 @@ int ObZrvDoc::navigate(NavCmd cmd)
 	return -1;
 }
 
+void ObZrvDoc::OnUpdateNavPrevNext(CCmdUI *pCmdUI)
+{
+	if (_diridx == -1)
+		pCmdUI->Enable(FALSE);
+	else if (pCmdUI->m_nID == ID_FILE_PREV)
+		pCmdUI->Enable(_diridx > 0);
+	else
+		pCmdUI->Enable(_diridx < (int)_dirfiles.size() - 1);
+}
+
 void CALLBACK ObZrvDoc::onAnimate(HWND hWnd, UINT nMsg, UINT_PTR nIDEvent, DWORD dwTime)
 {
 	ObZrvDoc *pthis = (ObZrvDoc *)nIDEvent;
@@ -543,7 +432,8 @@ void CALLBACK ObZrvDoc::onAnimate(HWND hWnd, UINT nMsg, UINT_PTR nIDEvent, DWORD
 		pthis->_totaldelay += pthis->_image->getFrameDelay();
 	} while (pthis->_tmstart + pthis->_totaldelay <= tmcur + 10);	// skip a frame if its time has already passed
 
-	pthis->UpdateAllViews(NULL);
+	//pthis->UpdateAllViews(NULL);
+	pthis->_view->onFrameUpdate();
 	if (pthis->_image->getLoopNum() <= 0 && pthis->_curloop >=0 ||	// setup timer only if has not loop end
 		pthis->_curloop < pthis->_image->getLoopNum())
 	{
@@ -555,4 +445,52 @@ void CALLBACK ObZrvDoc::onAnimate(HWND hWnd, UINT nMsg, UINT_PTR nIDEvent, DWORD
 		delay = std::min(delay, (UINT)(pthis->_image->getFrameDelay()) * 5);
 		pthis->_view->SetTimer(nIDEvent, delay, onAnimate);
 	}
+}
+
+void ObZrvDoc::OnZoomIn()
+{
+	zoom(1);
+}
+void ObZrvDoc::OnZoomOut()
+{
+	zoom(-1);
+}
+void ObZrvDoc::OnUpdateZoomIn(CCmdUI *pCmdUI)
+{
+	pCmdUI->Enable(zoom(1, true) == 0);
+}
+void ObZrvDoc::OnUpdateZoomOut(CCmdUI *pCmdUI)
+{
+	pCmdUI->Enable(zoom(-1, true) == 0);
+}
+
+int ObZrvDoc::zoom(int inout, bool test)
+{
+	static const std::vector<int> levels = {
+		1, 2, 3, 5, 7, 10, 15, 20, 30, 50, 70, 100, 150, 200, 300, 500, 700, 1000, 2000, 3000, 5000, 7000, 10000 };
+	if (!_image)
+		return -1;
+	if (inout == 0)
+		return 0;
+	else if (inout > 0)
+	{
+		if (_zoomlevel != 0 && _zoomlevel >= levels.back())
+			return -1;
+		if (test)
+			return 0;
+		_zoomlevel = *std::upper_bound(levels.begin(), levels.end(), _zoomlevel != 0 ? _zoomlevel : 100);
+	}
+	else
+	{
+		if (_zoomlevel != 0 && _zoomlevel <= levels.front())
+			return -1;
+		int newlevel = *std::upper_bound(levels.rbegin(), levels.rend(), _zoomlevel != 0 ? _zoomlevel : 100, std::greater<int>());
+		if (std::max(_image->getDimension().cx, _image->getDimension().cy) * newlevel / 100 < 1)
+			return -1;	// do not zoom out if already very small
+		if (test)
+			return 0;
+		_zoomlevel = newlevel;
+	}
+	_view->updateStatus();
+	return 0;
 }

@@ -50,11 +50,6 @@ protected:
 	// bitmap object of current frame
 	BasicBitmap *_fbitmap = NULL;
 
-	// (resized) output bitmap of current frame
-	BasicBitmap *_outBitmap = NULL;
-	RECT _outRect;
-	SIZE _outDim;
-
 	// animation properties
 	int _framecnt = 0;
 	int _frametm = 0;
@@ -127,7 +122,6 @@ public:
 	virtual ~WebpImage()
 	{
 		delete _fbitmap;
-		delete _outBitmap;
 		WebPAnimDecoderDelete(_animdec);
 	}
 
@@ -138,29 +132,11 @@ public:
 
 	virtual BasicBitmap *getBBitmap(RECT srcRect, SIZE outDim)
 	{
-		// if same as the one buffered, use it directly
-		if (_outBitmap && srcRect == _outRect && outDim == _outDim)
-			return _outBitmap;
-		if (!_fbitmap)	// no opened image
-			return NULL;
-		if (!(srcRect.left >= 0 && srcRect.right > srcRect.left && srcRect.top >= 0 && srcRect.bottom > srcRect.top &&
-			srcRect.right <= _dimension.cx && srcRect.bottom <= _dimension.cy && outDim.cx > 0 && outDim.cy > 0))
-			return NULL;	// invalid input paramerters
-
-		// if the whole image without scaling is required, just return the original bitmap
-		if (srcRect.top == 0 && srcRect.left == 0 && srcRect.bottom == _dimension.cy && srcRect.right == _dimension.cx && outDim == _dimension)
-			return _fbitmap;
-
-		delete _outBitmap;	// delete the buffered one
-		_outBitmap = NULL;
-		_outRect = srcRect;
-		_outDim = outDim;
-
 		// crop & scale
-		_outBitmap = new BasicBitmap(outDim.cx, outDim.cy, _fbitmap->Format());
-		_outBitmap->Resample(0, 0, outDim.cx, outDim.cy, _fbitmap,
+		BasicBitmap *outBitmap = new BasicBitmap(outDim.cx, outDim.cy, _fbitmap->Format());
+		outBitmap->Resample(0, 0, outDim.cx, outDim.cy, _fbitmap,
 			srcRect.left, srcRect.top, srcRect.right, srcRect.bottom, BasicBitmap::BILINEAR);
-		return _outBitmap;
+		return outBitmap;
 	}
 
 	virtual int getFrameCount() const
@@ -210,11 +186,6 @@ public:
 			void *dst = _fbitmap->Line(i);
 			void *src = decbits + linelen * i;
 			internal_memcpy(dst, src, linelen);
-		}
-		if (_outBitmap)
-		{
-			delete _outBitmap;
-			_outBitmap = NULL;
 		}
 		return IM_OK;
 	}
