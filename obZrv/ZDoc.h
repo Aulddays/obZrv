@@ -124,12 +124,4 @@ public:
 	afx_msg void OnFileSave();
 	virtual BOOL OnSaveDocument(LPCTSTR lpszPathName);
 
-protected:
-
-	afx_msg void OnZoomIn();
-	afx_msg void OnZoomOut();
-	afx_msg void OnUpdateZoomIn(CCmdUI *pCmdUI);
-	afx_msg void OnUpdateZoomOut(CCmdUI *pCmdUI);
-	int zoom(int inout, bool test = false);
-public:
 };

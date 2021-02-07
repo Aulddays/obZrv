@@ -51,10 +51,6 @@ IMPLEMENT_DYNCREATE(ObZrvDoc, CDocument)
 
 BEGIN_MESSAGE_MAP(ObZrvDoc, CDocument)
 	ON_COMMAND(ID_FILE_SAVE, &ObZrvDoc::OnFileSave)
-	ON_COMMAND(ID_VIEW_ZOOMIN, &ObZrvDoc::OnZoomIn)
-	ON_COMMAND(ID_VIEW_ZOOMOUT, &ObZrvDoc::OnZoomOut)
-	ON_UPDATE_COMMAND_UI(ID_VIEW_ZOOMIN, &ObZrvDoc::OnUpdateZoomIn)
-	ON_UPDATE_COMMAND_UI(ID_VIEW_ZOOMOUT, &ObZrvDoc::OnUpdateZoomOut)
 	ON_COMMAND(ID_FILE_PREV, &ObZrvDoc::OnNavPrev)
 	ON_COMMAND(ID_FILE_NEXT, &ObZrvDoc::OnNavNext)
 	ON_UPDATE_COMMAND_UI(ID_FILE_PREV, &ObZrvDoc::OnUpdateNavPrevNext)
@@ -447,50 +443,3 @@ void CALLBACK ObZrvDoc::onAnimate(HWND hWnd, UINT nMsg, UINT_PTR nIDEvent, DWORD
 	}
 }
 
-void ObZrvDoc::OnZoomIn()
-{
-	zoom(1);
-}
-void ObZrvDoc::OnZoomOut()
-{
-	zoom(-1);
-}
-void ObZrvDoc::OnUpdateZoomIn(CCmdUI *pCmdUI)
-{
-	pCmdUI->Enable(zoom(1, true) == 0);
-}
-void ObZrvDoc::OnUpdateZoomOut(CCmdUI *pCmdUI)
-{
-	pCmdUI->Enable(zoom(-1, true) == 0);
-}
-
-int ObZrvDoc::zoom(int inout, bool test)
-{
-	static const std::vector<int> levels = {
-		1, 2, 3, 5, 7, 10, 15, 20, 30, 50, 70, 100, 150, 200, 300, 500, 700, 1000, 2000, 3000, 5000, 7000, 10000 };
-	if (!_image)
-		return -1;
-	if (inout == 0)
-		return 0;
-	else if (inout > 0)
-	{
-		if (_zoomlevel != 0 && _zoomlevel >= levels.back())
-			return -1;
-		if (test)
-			return 0;
-		_zoomlevel = *std::upper_bound(levels.begin(), levels.end(), _zoomlevel != 0 ? _zoomlevel : 100);
-	}
-	else
-	{
-		if (_zoomlevel != 0 && _zoomlevel <= levels.front())
-			return -1;
-		int newlevel = *std::upper_bound(levels.rbegin(), levels.rend(), _zoomlevel != 0 ? _zoomlevel : 100, std::greater<int>());
-		if (std::max(_image->getDimension().cx, _image->getDimension().cy) * newlevel / 100 < 1)
-			return -1;	// do not zoom out if already very small
-		if (test)
-			return 0;
-		_zoomlevel = newlevel;
-	}
-	_view->updateStatus();
-	return 0;
-}

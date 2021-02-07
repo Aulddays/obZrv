@@ -135,7 +135,7 @@ public:
 		// crop & scale
 		BasicBitmap *outBitmap = new BasicBitmap(outDim.cx, outDim.cy, _fbitmap->Format());
 		outBitmap->Resample(0, 0, outDim.cx, outDim.cy, _fbitmap,
-			srcRect.left, srcRect.top, srcRect.right, srcRect.bottom, BasicBitmap::BILINEAR);
+			srcRect.left, srcRect.top, srcRect.right - srcRect.left, srcRect.bottom - srcRect.top, BasicBitmap::BILINEAR);
 		return outBitmap;
 	}
 

@@ -52,6 +52,10 @@ BEGIN_MESSAGE_MAP(ObZrvView, CView)
 	ON_WM_RBUTTONUP()
 	ON_WM_ERASEBKGND()
 	ON_WM_KEYDOWN()
+	ON_COMMAND(ID_VIEW_ZOOMIN, &ObZrvView::OnZoomIn)
+	ON_COMMAND(ID_VIEW_ZOOMOUT, &ObZrvView::OnZoomOut)
+	ON_UPDATE_COMMAND_UI(ID_VIEW_ZOOMIN, &ObZrvView::OnUpdateZoomIn)
+	ON_UPDATE_COMMAND_UI(ID_VIEW_ZOOMOUT, &ObZrvView::OnUpdateZoomOut)
 END_MESSAGE_MAP()
 
 // ObZrvView construction/destruction
@@ -124,10 +128,16 @@ void ObZrvView::OnDraw(CDC* pDc)
 		}
 		else
 		{
-			// must have been a window size change
-			assert(size != _viewWndDim && _viewRect.left >= 0 || _viewDim.cx >= 0);
-			// keep the upper-left point in current view not changed
+			// must have been a window size change or zooming
+			assert(_viewRect.left >= 0 && _viewDim.cx >= 0);
+			// keep the center point in current view still center in the new view
+			_viewRect.left = (_viewRect.left + _viewRect.right) / 2 - rect.Width() * 100 / _zoomlevel / 2;
 			_viewRect.right = _viewRect.left + rect.Width() * 100 / _zoomlevel;
+			if (_viewRect.left < 0)
+			{
+				_viewRect.right -= _viewRect.left;
+				_viewRect.left = 0;
+			}
 			if (_viewRect.right > image->getDimension().cx)
 			{
 				_viewRect.right = image->getDimension().cx;
@@ -142,7 +152,13 @@ void ObZrvView::OnDraw(CDC* pDc)
 			}
 			else
 				_viewDim.cx = size.cx;
+			_viewRect.top = (_viewRect.top + _viewRect.bottom) / 2 - rect.Height() * 100 / _zoomlevel / 2;
 			_viewRect.bottom = _viewRect.top + rect.Height() * 100 / _zoomlevel;
+			if (_viewRect.top < 0)
+			{
+				_viewRect.bottom -= _viewRect.top;
+				_viewRect.top = 0;
+			}
 			if (_viewRect.bottom > image->getDimension().cy)
 			{
 				_viewRect.bottom = image->getDimension().cy;
@@ -295,6 +311,9 @@ void ObZrvView::onFileOpened(int cmdid)
 	CPoint mousepos = preserveMouse(cmdid);
 	if (_zoomtype == ZT_FITIMAGE)
 	{
+		_zoomlevel = _fitlevel = 0;
+		_viewRect = CRect{ 0, 0, image->getDimension().cx, image->getDimension().cy };
+		_viewDim = CSize{ -1, -1 };
 		fitWindow2Image(image, mousepos);
 	}
 }
@@ -325,6 +344,11 @@ void ObZrvView::fitWindow2Image(Image *image, CPoint mousepos)
 		// image size
 		int imw = image->getDimension().cx;
 		int imh = image->getDimension().cy;
+		if (_zoomlevel != 0)
+		{
+			imw = imw * _zoomlevel / 100;
+			imh = imh * _zoomlevel / 100;
+		}
 		// main frame size
 		int fw = ((CRect)winpos.rcNormalPosition).Width();
 		int fh = ((CRect)winpos.rcNormalPosition).Height();
@@ -335,7 +359,12 @@ void ObZrvView::fitWindow2Image(Image *image, CPoint mousepos)
 		int mw = sw - fw + crect.Width();
 		int mh = sh - fh + crect.Height();
 		// calculate the adapted view size
-		if (imw > mw && mw * imh <= mh * imw)
+		if (_zoomlevel != 0)
+		{
+			imw = std::min(imw, mw);
+			imh = std::min(imh, mh);
+		}
+		else if (imw > mw && mw * imh <= mh * imw)
 		{
 			imh = std::min(mw * imh / imw + 1, mh);
 			imw = mw;
@@ -398,10 +427,7 @@ void ObZrvView::fitWindow2Image(Image *image, CPoint mousepos)
 			}
 		}
 	}
-	_zoomlevel = 0;
 	releaseBitmap();
-	_viewRect = CRect{0, 0, image->getDimension().cx, image->getDimension().cy};
-	_viewDim = CSize{-1, -1};
 	Invalidate(FALSE);
 }
 
@@ -477,4 +503,55 @@ CPoint ObZrvView::preserveMouse(int id)
 	}
 	// not inside any toolbar button
 	return CPoint{ -1, -1 };
+}
+
+void ObZrvView::OnZoomIn()
+{
+	zoom(1);
+}
+void ObZrvView::OnZoomOut()
+{
+	zoom(-1);
+}
+void ObZrvView::OnUpdateZoomIn(CCmdUI *pCmdUI)
+{
+	pCmdUI->Enable(zoom(1, true) == 0);
+}
+void ObZrvView::OnUpdateZoomOut(CCmdUI *pCmdUI)
+{
+	pCmdUI->Enable(zoom(-1, true) == 0);
+}
+
+int ObZrvView::zoom(int inout, bool test)
+{
+	static const std::vector<int> levels = {
+		1, 2, 3, 5, 7, 10, 15, 20, 30, 50, 70, 100, 150, 200, 300, 500, 700, 1000, 2000, 3000, 5000, 7000, 10000 };
+	Image *image = GetDocument()->getImage();
+	if (!image)
+		return -1;
+	if (inout == 0)
+		return 0;
+	else if (inout > 0)
+	{
+		if (_zoomlevel != 0 && _zoomlevel >= levels.back())
+			return -1;
+		if (test)
+			return 0;
+		_zoomlevel = *std::upper_bound(levels.begin(), levels.end(), _zoomlevel != 0 ? _zoomlevel : _fitlevel);
+	}
+	else
+	{
+		if (_zoomlevel != 0 && _zoomlevel <= levels.front())
+			return -1;
+		int newlevel = *std::upper_bound(levels.rbegin(), levels.rend(), _zoomlevel != 0 ? _zoomlevel : _fitlevel, std::greater<int>());
+		if (std::max(image->getDimension().cx, image->getDimension().cy) * newlevel / 100 < 1)
+			return -1;	// do not zoom out if already very small
+		if (test)
+			return 0;
+		_zoomlevel = newlevel;
+	}
+	CPoint mousepos = preserveMouse(inout > 0 ? ID_VIEW_ZOOMIN : ID_VIEW_ZOOMOUT);
+	fitWindow2Image(image, mousepos);
+	updateStatus();
+	return 0;
 }

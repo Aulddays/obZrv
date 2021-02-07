@@ -75,9 +75,14 @@ protected:
 	// adjust window size to fit the image
 	void fitWindow2Image(Image *image, CPoint mousepos);
 
-	// zoom levels
+	// zooming
 	int _zoomlevel = 0;
 	int _fitlevel = 0;	// actual zoom level if in fit mode
+	afx_msg void OnZoomIn();
+	afx_msg void OnZoomOut();
+	afx_msg void OnUpdateZoomIn(CCmdUI *pCmdUI);
+	afx_msg void OnUpdateZoomOut(CCmdUI *pCmdUI);
+	int zoom(int inout, bool test = false);
 
 	BasicBitmap *_viewBitmap = NULL;	// bitmap of current view
 	bool _internalBitmap = false;	// is _viewBitmap the internal one from doc? used when showing whole image without zoom
