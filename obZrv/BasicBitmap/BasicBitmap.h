@@ -693,6 +693,13 @@ public:
 	void Scale(const BasicRect *rect, const BasicBitmap *src, const BasicRect *bound, 
 		int mode = 0, IUINT32 color = 0xffffffff);
 
+	// scale and then crop
+	void ScaleCrop(const BasicBitmap *src,
+		int scw, int sch,	// scale to scw*sch
+		int crx, int cry, int crw, int crh,	// crop rect on scaled image
+		int dx, int dy,	// output position of cropped image
+		int mode = 0, IUINT32 color = 0xffffffff);
+
 	// premultiply with alpha
 	void Premultiply(bool reverse = false);
 

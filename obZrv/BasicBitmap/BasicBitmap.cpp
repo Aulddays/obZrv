@@ -63,6 +63,8 @@
 //=====================================================================
 #include "stdafx.h"
 #include "BasicBitmap.h"
+#include <algorithm>
+#include <stdint.h>
 
 #ifndef PIXEL_NO_SYSTEM
 #if defined(_WIN32) || defined(WIN32) || defined(_WIN64) || defined(WIN64)
@@ -71,6 +73,7 @@
 #endif
 #include <Windows.h>
 #include <ObjBase.h>
+#undef min
 #ifndef _WIN32
 #define _WIN32 
 #endif
@@ -3569,6 +3572,166 @@ void BasicBitmap::Scale(const BasicRect *rect, const BasicBitmap *src,
 		mode, color);
 }
 
+void BasicBitmap::ScaleCrop(const BasicBitmap *src,
+	int scw, int sch,	// scale to scw*sch
+	int crx, int cry, int crw, int crh,	// crop rect on scaled image
+	int dx, int dy,	// output position of cropped image
+	int mode/* = 0*/, IUINT32 color/* = 0xffffffff*/)
+{
+	if ((_w | _h | src->_w | src->_h) >= 0x7fff)
+		return;
+
+	if (scw == src->_w && sch == src->_h) {
+		Blend(dx, dy, src, crx, cry, crw, crh, mode, color);
+		return;
+	}
+
+	if ((mode & PIXEL_FLAG_NOCLIP) == 0) {
+		crw = std::min({ crw, scw - crx, _w - dx });
+		crh = std::min({ crh, sch - cry, _h - dy });
+	}
+	else {
+		if (dx < 0 || dx + crw >(int)_w || dy < 0 || dy + crh >(int)_h)
+			return;
+	}
+
+	if (crh <= 0 || crw <= 0)
+		return;
+
+	PixelFmt sfmt = src->_fmt;
+	PixelFmt dfmt = this->_fmt;
+
+	PixelDraw draw = GetDriver(dfmt, 0, false);
+	if (mode & PIXEL_FLAG_SRCOVER) draw = GetDriver(dfmt, 1, false);
+	else if (mode & PIXEL_FLAG_ADDITIVE) draw = GetDriver(dfmt, 2, false);
+	else if (mode & PIXEL_FLAG_SRCCOPY) draw = NULL;
+
+	IINT32 offx = (scw == src->_w) ? 0 : 0x8000;
+	IINT32 offy = (sch == src->_h) ? 0 : 0x8000;
+	IINT32 incx = (src->_w << 16) / scw;
+	IINT32 incy = (src->_h << 16) / sch;
+	IINT32 startx = (((src->_w * (uint64_t)crx) << 16) / scw & 0xffff) + offx;
+	IINT32 starty = ((src->_h * (uint64_t)cry) << 16) / sch + offy;
+
+	if (mode & PIXEL_FLAG_VFLIP) {
+		starty = (src->_h * (uint64_t)(cry + crh) << 16) / sch - (1 << 16) - offy;
+	}
+
+	InterpRow interprow = InterpolateRowNearest;
+	InterpCol interpcol = InterpolateColNearest;
+
+	if (mode & PIXEL_FLAG_LINEAR) {
+		interprow = (InterpolateRowPtr) ? InterpolateRowPtr : InterpolateRow;
+		interpcol = InterpolateColNearest;
+	}
+
+	if (mode & PIXEL_FLAG_BILINEAR) {
+		interprow = (InterpolateRowPtr) ? InterpolateRowPtr : InterpolateRow;
+		interpcol = (InterpolateColPtr) ? InterpolateColPtr : InterpolateCol;
+	}
+
+	int depth = src->Bpp();
+	int sx = crx * src->_w / scw;
+	int sw = std::min((crw * src->_w) / scw + 2, src->_w - sx);
+	int need = (depth != 32) ? (sw * 2) : 0;
+
+	IUINT32 *buffer = (IUINT32*)internal_align_malloc((sw + 4 + crw + need) * 4, 16);
+	IUINT32 *srcrow = buffer;
+	IUINT32 *cache = buffer + sw + 4;
+	IUINT32 *scanline1 = cache + crw;
+	IUINT32 *scanline2 = scanline1 + sw;
+	IUINT32 *srcline = NULL;
+
+	for (int j = 0; j < crh; j++) {
+		IUINT8 *dstrow = (IUINT8*)Line(dy + j);
+		const IUINT32 *row1;
+		const IUINT32 *row2;
+		IINT32 fraction;
+
+		if ((mode & PIXEL_FLAG_VFLIP) == 0) {
+			int y1 = starty >> 16;
+			int y2 = y1 + 1;
+			int my = src->_h - 1;
+			y1 = (y1 < 0) ? 0 : ((y1 > my) ? my : y1);
+			y2 = (y2 < 0) ? 0 : ((y2 > my) ? my : y2);
+			if (depth == 32) {
+				row1 = ((const IUINT32*)src->Line(y1)) + sx;
+				row2 = ((const IUINT32*)src->Line(y2)) + sx;
+			}
+			else {
+				row1 = scanline1;
+				row2 = scanline2;
+				src->RowFetch(sx, y1, scanline1, sw);
+				src->RowFetch(sx, y2, scanline2, sw);
+			}
+			fraction = starty & 0xffff;
+			starty += incy;
+		}
+		else {
+			int y1 = (starty + 0xffff) >> 16;
+			int y2 = y1 - 1;
+			int my = src->_h - 1;
+			y1 = (y1 < 0) ? 0 : ((y1 > my) ? my : y1);
+			y2 = (y2 < 0) ? 0 : ((y2 > my) ? my : y2);
+			if (depth == 32) {
+				row1 = ((const IUINT32*)src->Line(y1)) + sx;
+				row2 = ((const IUINT32*)src->Line(y2)) + sx;
+			}
+			else {
+				row1 = scanline1;
+				row2 = scanline2;
+				src->RowFetch(sx, y1, scanline1, sw);
+				src->RowFetch(sx, y2, scanline2, sw);
+			}
+			fraction = 0x10000 - (starty & 0xffff);
+			starty -= incy;
+		}
+
+		// interpolate from row1 and row2 to srcrow
+		interprow(srcrow, sw, row1, row2, fraction);
+
+		if ((mode & PIXEL_FLAG_HFLIP) != 0) {
+			CardReverse(srcrow, sw);
+		}
+
+		if (sfmt == X8R8G8B8) {
+			CardSetAlpha(srcrow, sw, 0xff);
+		}
+
+		// repeat right edge for linear interpolation
+		srcrow[sw] = srcrow[sw - 1];
+		srcrow[sw + 1] = srcrow[sw - 1];
+
+		if (color != 0xffffffff) {
+			CardMultiply(srcrow, sw, color);
+		}
+
+		if (draw == NULL) {		// copy src directly
+			if (crw == src->_w) {
+				Store(dfmt, dstrow, dx, crw, srcrow);
+			}
+			else if (_bpp == 32) {
+				interpcol(((IUINT32*)dstrow) + dx, crw, srcrow, startx, incx);
+			}
+			else {
+				interpcol(cache, crw, srcrow, startx, incx);
+				Store(dfmt, dstrow, dx, crw, cache);
+			}
+		}
+		else {					// draw with compositor
+			if (scw == src->_w) {
+				srcline = srcrow;
+			}
+			else {
+				interpcol(cache, crw, srcrow, startx, incx);
+				srcline = cache;
+			}
+			draw(dstrow, dx, crw, srcline);
+		}
+	}
+
+	internal_align_free(buffer);
+}
 
 //---------------------------------------------------------------------
 // Shuffle 32 bits color
