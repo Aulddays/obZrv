@@ -3572,13 +3572,28 @@ void BasicBitmap::Scale(const BasicRect *rect, const BasicBitmap *src,
 		mode, color);
 }
 
-void BasicBitmap::ScaleCrop(const BasicBitmap *src,
+// Scale then Crop
+// Similar to Scale(), but guarrantees pixel stability:
+// the same position in the scaled image produces the same pixel value regardless of the crop region,
+// while Scale() crops on the ori image and the result may not be stable.
+// Basic idea: ALL coordinates from a single pair of step values (incx/incy) computed from the full
+// scale dimensions, so that the sampling formula:
+//   source_x = offx + (crx + i) * incx
+//   source_y = offy + (cry + j) * incy
+// is invariant across different crop regions.
+// 
+// Optimize computation by Computing only the pixels within the crop region 
+void BasicBitmap::ScaleCrop(
+	int dx, int dy,	// output position of cropped image
+	const BasicBitmap *src,
 	int scw, int sch,	// scale to scw*sch
 	int crx, int cry, int crw, int crh,	// crop rect on scaled image
-	int dx, int dy,	// output position of cropped image
 	int mode/* = 0*/, IUINT32 color/* = 0xffffffff*/)
 {
 	if ((_w | _h | src->_w | src->_h) >= 0x7fff)
+		return;
+
+	if (scw <= 0 || sch <= 0 || crw <= 0 || crh <= 0)
 		return;
 
 	if (scw == src->_w && sch == src->_h) {
@@ -3586,16 +3601,21 @@ void BasicBitmap::ScaleCrop(const BasicBitmap *src,
 		return;
 	}
 
+	// Clip: adjust dx/dy and the crop rect to be valid
 	if ((mode & PIXEL_FLAG_NOCLIP) == 0) {
-		crw = std::min({ crw, scw - crx, _w - dx });
-		crh = std::min({ crh, sch - cry, _h - dy });
+		if (dx < 0) { crx += -dx; crw += dx; dx = 0; }
+		if (dy < 0) { cry += -dy; crh += dy; dy = 0; }
+		if (dx + crw > (int)_w) crw = (int)_w - dx;
+		if (dy + crh > (int)_h) crh = (int)_h - dy;
 	}
 	else {
 		if (dx < 0 || dx + crw >(int)_w || dy < 0 || dy + crh >(int)_h)
 			return;
 	}
 
-	if (crh <= 0 || crw <= 0)
+	if (crh <= 0 || crw <= 0 || crx < 0 || cry < 0)
+		return;
+	if (crx + crw > scw || cry + crh > sch)
 		return;
 
 	PixelFmt sfmt = src->_fmt;
@@ -3606,15 +3626,23 @@ void BasicBitmap::ScaleCrop(const BasicBitmap *src,
 	else if (mode & PIXEL_FLAG_ADDITIVE) draw = GetDriver(dfmt, 2, false);
 	else if (mode & PIXEL_FLAG_SRCCOPY) draw = NULL;
 
+	// Global coordinate mapping in 16.16 fixed-point, to achieve stability
+	// incx/incy MUST be derived from the full scale dimensions (src_w/scw, src_h/sch).
+	// All subsequent coordinates are derived from them by multiplication, never by an independent division
 	IINT32 offx = (scw == src->_w) ? 0 : 0x8000;
 	IINT32 offy = (sch == src->_h) ? 0 : 0x8000;
 	IINT32 incx = (src->_w << 16) / scw;
 	IINT32 incy = (src->_h << 16) / sch;
-	IINT32 startx = (((src->_w * (uint64_t)crx) << 16) / scw & 0xffff) + offx;
-	IINT32 starty = ((src->_h * (uint64_t)cry) << 16) / sch + offy;
 
+	// global_startx: the source X (16.16) for crop pixel 0, equivalent to
+	// what Scale() would compute for dest pixel crx: offx + crx * incx.
+	IINT32 global_startx = offx + (IINT32)((IINT64)crx * incx);
+
+	// starty: the source Y (16.16) for crop row 0.
+	// VFLIP: start from the bottom of the source and walk upward.
+	IINT32 starty = offy + (IINT32)((IINT64)cry * incy);
 	if (mode & PIXEL_FLAG_VFLIP) {
-		starty = (src->_h * (uint64_t)(cry + crh) << 16) / sch - (1 << 16) - offy;
+		starty = ((src->_h - 1) << 16) - offy - (IINT32)((IINT64)cry * incy);
 	}
 
 	InterpRow interprow = InterpolateRowNearest;
@@ -3630,9 +3658,25 @@ void BasicBitmap::ScaleCrop(const BasicBitmap *src,
 		interpcol = (InterpolateColPtr) ? InterpolateColPtr : InterpolateCol;
 	}
 
+	// The minimal source column range needed by interpcol.
+	int idx_min = global_startx >> 16;
+	int idx_max = (int)((global_startx + (IINT64)(crw - 1) * incx) >> 16);
+	int sw = idx_max - idx_min + 2;
+
+	// Determine which source columns to read.
+	int sx = !(mode & PIXEL_FLAG_HFLIP) ? idx_min : src->_w - idx_min - sw;
+
+	// clamp to valid source range
+	if (sx < 0) { sw += sx; sx = 0; }
+	if (sx + sw > (int)src->_w) sw = src->_w - sx;
+	if (sw <= 0) return;
+
+	// local_startx: remap global_startx into the local buffer so that
+	// buffer[0] corresponds to source column idx_min (or its mirror).
+	// Equals the fractional part of global_startx (global_startx & 0xffff).
+	IINT32 local_startx = global_startx - (idx_min << 16);
+
 	int depth = src->Bpp();
-	int sx = crx * src->_w / scw;
-	int sw = std::min((crw * src->_w) / scw + 2, src->_w - sx);
 	int need = (depth != 32) ? (sw * 2) : 0;
 
 	IUINT32 *buffer = (IUINT32*)internal_align_malloc((sw + 4 + crw + need) * 4, 16);
@@ -3642,12 +3686,14 @@ void BasicBitmap::ScaleCrop(const BasicBitmap *src,
 	IUINT32 *scanline2 = scanline1 + sw;
 	IUINT32 *srcline = NULL;
 
+	// Main scanline loop: only crh rows (not the full sch) ---
 	for (int j = 0; j < crh; j++) {
 		IUINT8 *dstrow = (IUINT8*)Line(dy + j);
 		const IUINT32 *row1;
 		const IUINT32 *row2;
 		IINT32 fraction;
 
+		// Read two source rows at column range [sx, sx+sw) and compute fraction for interpolation
 		if ((mode & PIXEL_FLAG_VFLIP) == 0) {
 			int y1 = starty >> 16;
 			int y2 = y1 + 1;
@@ -3687,34 +3733,37 @@ void BasicBitmap::ScaleCrop(const BasicBitmap *src,
 			starty -= incy;
 		}
 
-		// interpolate from row1 and row2 to srcrow
+		// vertical interpolation
 		interprow(srcrow, sw, row1, row2, fraction);
 
 		if ((mode & PIXEL_FLAG_HFLIP) != 0) {
 			CardReverse(srcrow, sw);
 		}
 
+		// force opaque alpha for X8R8G8B8 format
 		if (sfmt == X8R8G8B8) {
 			CardSetAlpha(srcrow, sw, 0xff);
 		}
 
-		// repeat right edge for linear interpolation
+		// pad (repeat) right edge for safe linear interpolation
 		srcrow[sw] = srcrow[sw - 1];
 		srcrow[sw + 1] = srcrow[sw - 1];
 
+		// color tint / modulation
 		if (color != 0xffffffff) {
 			CardMultiply(srcrow, sw, color);
 		}
 
+		// Horizontal resampling: interpcol reads srcrow[local_startx>>16 ..] and steps by incx
 		if (draw == NULL) {		// copy src directly
-			if (crw == src->_w) {
+			if (scw == src->_w) {
 				Store(dfmt, dstrow, dx, crw, srcrow);
 			}
 			else if (_bpp == 32) {
-				interpcol(((IUINT32*)dstrow) + dx, crw, srcrow, startx, incx);
+				interpcol(((IUINT32*)dstrow) + dx, crw, srcrow, local_startx, incx);
 			}
 			else {
-				interpcol(cache, crw, srcrow, startx, incx);
+				interpcol(cache, crw, srcrow, local_startx, incx);
 				Store(dfmt, dstrow, dx, crw, cache);
 			}
 		}
@@ -3723,7 +3772,7 @@ void BasicBitmap::ScaleCrop(const BasicBitmap *src,
 				srcline = srcrow;
 			}
 			else {
-				interpcol(cache, crw, srcrow, startx, incx);
+				interpcol(cache, crw, srcrow, local_startx, incx);
 				srcline = cache;
 			}
 			draw(dstrow, dx, crw, srcline);
@@ -6062,7 +6111,7 @@ int BasicBitmap_ResampleAvg(BasicBitmap *dst, int dx, int dy, int dw, int dh,
 
 	bs->Convert(0, 0, src, 0, 0, srcwidth, srcheight);
 
-	int hr = BasicBitmap_ResampleSmooth(bs->Address8(0, 0), bd->Address8(0, 0),
+	int hr = BasicBitmap_ResampleSmooth(bd->Address8(0, 0), bs->Address8(0, 0),
 		dstwidth, srcwidth, dstheight, srcheight, bd->Pitch(), bs->Pitch());
 
 	if (hr == 0) {

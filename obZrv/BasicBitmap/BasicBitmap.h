@@ -482,14 +482,28 @@ extern const IUINT32 _pixel_scale_6[64];
 // Global Definition
 //=====================================================================
 #define PIXEL_FLAG_MASK		  1		// draw with transparent color
+// used in Blit and BresenhamStretch only. copy src pixel only if it != transparent_color
+// transparent color match considers alpha, and copy also keeps src alpha
+
+// Flips
 #define PIXEL_FLAG_HFLIP	  2		// horizontal flip
 #define PIXEL_FLAG_VFLIP	  4		// vertical flip
+
 #define PIXEL_FLAG_NOCLIP	  8		// no clip (must be careful)
-#define PIXEL_FLAG_SRCOVER   16		// only used in blend & scale
-#define PIXEL_FLAG_ADDITIVE  32		// only used in blend & scale
-#define PIXEL_FLAG_SRCCOPY   64		// only used in blend & scale
-#define PIXEL_FLAG_LINEAR   128		// only used in scale
-#define PIXEL_FLAG_BILINEAR 256		// only used in scale
+// Requires all input coordinates in src and dst be in valid areas, or result is unexpected
+// If not set, will try to clip/map the coordinates to the valid areas
+
+// Blending modes on images with alpha channel (used in blend & scale)
+// If none set: if src and dst both with alpha, blend them with alphas and also calculate new alpha
+//              if src is with alpha and dst not, blend with src alpha and make the res opaque
+#define PIXEL_FLAG_SRCOVER   16		// res = src + dst*(255-src.a)/255 (src should have been pre-multiplied with src.a)
+#define PIXEL_FLAG_ADDITIVE  32		// res = src * src.a/255 + dst
+#define PIXEL_FLAG_SRCCOPY   64		// do not blend dst, use color and alpha only from src
+
+// Interpolation modes (only used in scale)
+// If none set: Use "nearest"
+#define PIXEL_FLAG_LINEAR   128
+#define PIXEL_FLAG_BILINEAR 256
 
 
 //---------------------------------------------------------------------
@@ -693,11 +707,22 @@ public:
 	void Scale(const BasicRect *rect, const BasicBitmap *src, const BasicRect *bound, 
 		int mode = 0, IUINT32 color = 0xffffffff);
 
-	// scale and then crop
-	void ScaleCrop(const BasicBitmap *src,
+	// Scale then Crop
+	// Similar to Scale(), but guarrantees pixel stability:
+	// the same position in the scaled image produces the same pixel value regardless of the crop region,
+	// while Scale() crops on the ori image and the result may not be stable.
+	// Basic idea: ALL coordinates from a single pair of step values (incx/incy) computed from the full
+	// scale dimensions, so that the sampling formula:
+	//   source_x = offx + (crx + i) * incx
+	//   source_y = offy + (cry + j) * incy
+	// is invariant across different crop regions.
+	// 
+	// Optimize computation by Computing only the pixels within the crop region 
+	void ScaleCrop(
+		int dx, int dy,	// output position of cropped image
+		const BasicBitmap *src,
 		int scw, int sch,	// scale to scw*sch
 		int crx, int cry, int crw, int crh,	// crop rect on scaled image
-		int dx, int dy,	// output position of cropped image
 		int mode = 0, IUINT32 color = 0xffffffff);
 
 	// premultiply with alpha

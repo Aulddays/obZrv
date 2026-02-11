@@ -102,7 +102,7 @@ protected:
 			return IM_FAIL;
 		_framecnt = animinfo.frame_count;
 		_loopnum = animinfo.loop_count;
-		_dimension = { animinfo.canvas_width, animinfo.canvas_height };
+		_dimension = { (LONG)animinfo.canvas_width, (LONG)animinfo.canvas_height };
 		// get first frame
 		res = nextFrame(true);
 		if (res != IM_OK)
@@ -136,6 +136,16 @@ public:
 		BasicBitmap *outBitmap = new BasicBitmap(outDim.cx, outDim.cy, _fbitmap->Format());
 		outBitmap->Resample(0, 0, outDim.cx, outDim.cy, _fbitmap,
 			srcRect.left, srcRect.top, srcRect.right - srcRect.left, srcRect.bottom - srcRect.top, BasicBitmap::BILINEAR);
+		return outBitmap;
+	}
+
+	virtual BasicBitmap* getBBitmap(SIZE scaleSize, RECT cropRect)
+	{
+		// scale and crop
+		BasicBitmap* outBitmap = new BasicBitmap(cropRect.right - cropRect.left, cropRect.bottom - cropRect.top, _fbitmap->Format());
+		outBitmap->ScaleCrop(0, 0, _fbitmap, scaleSize.cx, scaleSize.cy,
+			cropRect.left, cropRect.top, cropRect.right - cropRect.left, cropRect.bottom - cropRect.top,
+			PIXEL_FLAG_SRCCOPY | PIXEL_FLAG_BILINEAR);
 		return outBitmap;
 	}
 

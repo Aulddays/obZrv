@@ -56,6 +56,9 @@ BEGIN_MESSAGE_MAP(ObZrvView, CView)
 	ON_COMMAND(ID_VIEW_ZOOMOUT, &ObZrvView::OnZoomOut)
 	ON_UPDATE_COMMAND_UI(ID_VIEW_ZOOMIN, &ObZrvView::OnUpdateZoomIn)
 	ON_UPDATE_COMMAND_UI(ID_VIEW_ZOOMOUT, &ObZrvView::OnUpdateZoomOut)
+	ON_WM_LBUTTONDOWN()
+	ON_WM_LBUTTONUP()
+	ON_WM_MOUSEMOVE()
 END_MESSAGE_MAP()
 
 // ObZrvView construction/destruction
@@ -97,89 +100,70 @@ void ObZrvView::OnDraw(CDC* pDc)
 	crect = rect;
 	CSize size = { rect.Width(), rect.Height() };
 
-	if (!_viewBitmap || _viewRect.left < 0 || _viewDim.cx < 0 || size != _viewWndDim)		// need update viewBitmap
+	if (!_viewBitmap || size != _viewWndDim)		// need update viewBitmap
 	{
-		CRect oldViewRect = _viewRect;
-		CSize oldViewDim = _viewDim;
-		if (_zoomtype == ZT_FITIMAGE && _zoomlevel == 0)
+		CRect oldViewCrop = _viewCrop;
+		if (_zoomtype == ZT_FITIMAGE && _zoomlevel == 0)	// Fit image to view
 		{
-			_viewRect = CRect{ 0, 0, image->getDimension().cx, image->getDimension().cy };
-			if (size.cx >= image->getDimension().cx && size.cy >= image->getDimension().cy)
+			if (size.cx >= image->getDimension().cx && size.cy >= image->getDimension().cy)	// View is larger than image
 			{
-				_viewDim.cx = image->getDimension().cx;
-				_viewDim.cy = image->getDimension().cy;
 				_fitlevel = 100;
+				_scaleSize = CSize{ image->getDimension().cx, image->getDimension().cy };
 			}
-			else if ((uint64_t)size.cx * image->getDimension().cy > (uint64_t)size.cy * image->getDimension().cx)
+			else if ((uint64_t)size.cx * image->getDimension().cy > (uint64_t)size.cy * image->getDimension().cx)	// Fit on height
 			{
-				_viewDim.cx = (LONG)((double)size.cy * image->getDimension().cx / image->getDimension().cy + 0.5);
-				_viewDim.cx = std::max(_viewDim.cx, 1l);
-				_viewDim.cy = size.cy;
 				_fitlevel = size.cy * 100 / image->getDimension().cy;
+				_scaleSize.cx = (LONG)((double)size.cy * image->getDimension().cx / image->getDimension().cy + 0.5);
+				_scaleSize.cx = std::max(_scaleSize.cx, 1l);
+				_scaleSize.cy = size.cy;
 			}
-			else
+			else	// Fit on width
 			{
 				assert((uint64_t)size.cx * image->getDimension().cy <= (uint64_t)size.cy * image->getDimension().cx);
-				_viewDim.cy = (LONG)((double)size.cx * image->getDimension().cy / image->getDimension().cx + 0.5);
-				_viewDim.cy = std::max(_viewDim.cy, 1l);
-				_viewDim.cx = size.cx;
 				_fitlevel = size.cx * 100 / image->getDimension().cx;
+				_scaleSize.cy = (LONG)((double)size.cx * image->getDimension().cy / image->getDimension().cx + 0.5);
+				_scaleSize.cy = std::max(_scaleSize.cy, 1l);
+				_scaleSize.cx = size.cx;
 			}
+			_viewCrop = CRect{ 0, 0, _scaleSize.cx, _scaleSize.cy };
 		}
 		else
 		{
-			// must have been a window size change or zooming
-			assert(_viewRect.left >= 0 && _viewDim.cx >= 0);
-			// keep the center point in current view still center in the new view
-			_viewRect.left = (_viewRect.left + _viewRect.right) / 2 - rect.Width() * 100 / _zoomlevel / 2;
-			_viewRect.right = _viewRect.left + rect.Width() * 100 / _zoomlevel;
-			if (_viewRect.left < 0)
+			// TODO: must have been a window size change or zooming
+			assert(true);
+			// TODO: Adjust based on offset
+			_scaleSize.cx = std::max(image->getDimension().cx * _zoomlevel / 100, 1l);
+			_scaleSize.cy = std::max(image->getDimension().cy * _zoomlevel / 100, 1l);
+			if (rect.Width() >= _scaleSize.cx)
 			{
-				_viewRect.right -= _viewRect.left;
-				_viewRect.left = 0;
-			}
-			if (_viewRect.right > image->getDimension().cx)
-			{
-				_viewRect.right = image->getDimension().cx;
-				_viewRect.left = _viewRect.right - rect.Width() * 100 / _zoomlevel;
-				if (_viewRect.left < 0)
-				{
-					_viewRect.left = 0;
-					_viewDim.cx = std::max(image->getDimension().cx * _zoomlevel / 100, 1l);
-				}
-				else
-					_viewDim.cx = size.cx;
+				_viewCrop.left = 0;
+				_viewCrop.right = _scaleSize.cx;
 			}
 			else
-				_viewDim.cx = size.cx;
-			_viewRect.top = (_viewRect.top + _viewRect.bottom) / 2 - rect.Height() * 100 / _zoomlevel / 2;
-			_viewRect.bottom = _viewRect.top + rect.Height() * 100 / _zoomlevel;
-			if (_viewRect.top < 0)
 			{
-				_viewRect.bottom -= _viewRect.top;
-				_viewRect.top = 0;
+				_viewCrop.left = (_scaleSize.cx - rect.Width()) / 2;
+				_viewCrop.right = _viewCrop.left + rect.Width();
 			}
-			if (_viewRect.bottom > image->getDimension().cy)
+			if (rect.Height() >= _scaleSize.cy)
 			{
-				_viewRect.bottom = image->getDimension().cy;
-				_viewRect.top = _viewRect.bottom - rect.Height() * 100 / _zoomlevel;
-				if (_viewRect.top < 0)
-				{
-					_viewRect.top = 0;
-					_viewDim.cy = std::max(image->getDimension().cy * _zoomlevel / 100, 1l);
-				}
-				else
-					_viewDim.cy = size.cy;
+				_viewCrop.top = 0;
+				_viewCrop.bottom = _scaleSize.cy;
 			}
 			else
-				_viewDim.cy = size.cy;
+			{
+				_viewCrop.top = (_scaleSize.cy - rect.Height()) / 2;
+				_viewCrop.bottom = _viewCrop.top + rect.Height();
+			}
 		}
 
 		_viewWndDim = size;
-		if (oldViewRect != _viewRect || oldViewDim != _viewDim)
+		if (_viewCrop != oldViewCrop)
 			releaseBitmap();
 		if (!_viewBitmap)
-			_viewBitmap = image->getBBitmap(_viewRect, _viewDim);
+		{
+			//_viewBitmap = image->getBBitmap(_viewRect, _viewDim);
+			_viewBitmap = image->getBBitmap(_scaleSize, _viewCrop);
+		}
 		updateStatus();
 	}
 
@@ -189,18 +173,18 @@ void ObZrvView::OnDraw(CDC* pDc)
 		return;
 	}
 	// calculate the output rect
-	if (rect.Width() > _viewDim.cx)
+	if (rect.Width() > _viewCrop.Width())
 	{
-		rect.left = (rect.Width() - _viewDim.cx) / 2;
-		rect.right = rect.left + _viewDim.cx;
+		rect.left = (rect.Width() - _viewCrop.Width()) / 2;
+		rect.right = rect.left + _viewCrop.Width();
 	}
-	if (rect.Height() > _viewDim.cy)
+	if (rect.Height() > _viewCrop.Height())
 	{
-		rect.top = (rect.Height() - _viewDim.cy) / 2;
-		rect.bottom = rect.top + _viewDim.cy;
+		rect.top = (rect.Height() - _viewCrop.Height()) / 2;
+		rect.bottom = rect.top + _viewCrop.Height();
 	}
-	assert(_viewBitmap->Width() == _viewDim.cx && _viewBitmap->Height() == _viewDim.cy);
-	_viewBitmap->SetDIBitsToDevice(pDc->GetSafeHdc(), rect.left, rect.top, 0, 0, _viewDim.cx, _viewDim.cy);
+	assert(_viewBitmap->Width() >= _viewCrop.Width() && _viewBitmap->Height() >= _viewCrop.Height());
+	_viewBitmap->SetDIBitsToDevice(pDc->GetSafeHdc(), rect.left, rect.top, 0, 0, _viewCrop.Width(), _viewCrop.Height());
 	if (rect.left > 0)
 		pDc->FillSolidRect(0, 0, rect.left, crect.bottom, _bgColor);
 	if (rect.right != crect.right)
@@ -312,10 +296,11 @@ void ObZrvView::onFileOpened(int cmdid)
 	if (_zoomtype == ZT_FITIMAGE)
 	{
 		_zoomlevel = _fitlevel = 0;
-		_viewRect = CRect{ 0, 0, image->getDimension().cx, image->getDimension().cy };
-		_viewDim = CSize{ -1, -1 };
 		fitWindow2Image(image, mousepos);
 	}
+	_scaleSize = CSize{ -1, -1 };
+	_viewCrop = { -1, -1, -1, -1 };
+	_viewOffset = { 0, 0 };
 }
 
 // adjust window size to fit the image
@@ -341,24 +326,27 @@ void ObZrvView::fitWindow2Image(Image *image, CPoint mousepos)
 	}
 	if (mok)
 	{
-		// image size
+		// Determine the best desired image display (view window) size => imw and imh
+		// Step1: init them with the original image size
 		int imw = image->getDimension().cx;
 		int imh = image->getDimension().cy;
-		if (_zoomlevel != 0)
+		// Step2: perform zooming
+		if (_zoomlevel != 0)	// 
 		{
 			imw = imw * _zoomlevel / 100;
 			imh = imh * _zoomlevel / 100;
 		}
-		// main frame size
+		// Step3: Determine the max possible view size and adjust imw/imh with it
+		// current main frame size
 		int fw = ((CRect)winpos.rcNormalPosition).Width();
 		int fh = ((CRect)winpos.rcNormalPosition).Height();
 		// screen size
 		int sw = ((CRect)minfo.rcWork).Width();
 		int sh = ((CRect)minfo.rcWork).Height();
-		// max possible view size
-		int mw = sw - fw + crect.Width();
-		int mh = sh - fh + crect.Height();
-		// calculate the adapted view size
+		// max possible view window size
+		int mw = sw - (fw - crect.Width());
+		int mh = sh - (fh - crect.Height());
+		// Adjust imw/imh with mw/mh
 		if (_zoomlevel != 0)
 		{
 			imw = std::min(imw, mw);
@@ -374,14 +362,15 @@ void ObZrvView::fitWindow2Image(Image *image, CPoint mousepos)
 			imw = std::min(mh * imw / imh + 1, mw);
 			imh = mh;
 		}
-		int margin = (int)(10 * AulddaysDpiHelper::getScale(pMainfrm->GetSafeHwnd()));	// allow some margin
+		// Step4: If mw/mh allows, add a small outer margin to imw/imh, and also guarrantee a minimal imw/imh
+		int margin = 0;// (int)(10 * AulddaysDpiHelper::getScale(pMainfrm->GetSafeHwnd()));	// allow some margin
 		imw = std::min(std::max(imw + margin, (int)(400 * AulddaysDpiHelper::getScale(pMainfrm->GetSafeHwnd()))), mw);
 		imh = std::min(std::max(imh + margin, 20), mh);
 
+		// Now the best view window size in imw/imh is determined, reposition the main window based on it
 		// diff size
 		int dw = imw - crect.Width();
 		int dh = imh - crect.Height();
-
 		// adjust winpos
 		CRect npos = winpos.rcNormalPosition;
 		if (dw != 0)
@@ -436,7 +425,7 @@ void ObZrvView::onFrameUpdate()
 	releaseBitmap();
 	Image *image = GetDocument()->getImage();
 	if (image)
-		_viewBitmap = image->getBBitmap(_viewRect, _viewDim);
+		_viewBitmap = image->getBBitmap(_scaleSize, _viewCrop);
 	Invalidate(FALSE);
 }
 
@@ -554,4 +543,26 @@ int ObZrvView::zoom(int inout, bool test)
 	fitWindow2Image(image, mousepos);
 	updateStatus();
 	return 0;
+}
+
+
+/////////////////////// For dragging /////////////////////////
+void ObZrvView::OnLButtonDown(UINT nFlags, CPoint point)
+{
+	_isdragging = true;
+	_draggingOrigin = point;
+	SetCapture();
+	CView::OnLButtonDown(nFlags, point);
+}
+
+
+void ObZrvView::OnLButtonUp(UINT nFlags, CPoint point)
+{
+	CView::OnLButtonUp(nFlags, point);
+}
+
+
+void ObZrvView::OnMouseMove(UINT nFlags, CPoint point)
+{
+	CView::OnMouseMove(nFlags, point);
 }

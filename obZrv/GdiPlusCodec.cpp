@@ -222,12 +222,22 @@ public:
 		return _loopnum;
 	}
 
-	BasicBitmap *getBBitmap(RECT srcRect, SIZE outDim)
+	virtual BasicBitmap *getBBitmap(RECT srcRect, SIZE outDim)
 	{
 		// crop & scale
 		BasicBitmap *outBitmap = new BasicBitmap(outDim.cx, outDim.cy, _fbitmap->Format());
 		outBitmap->Resample(0, 0, outDim.cx, outDim.cy, _fbitmap,
 			srcRect.left, srcRect.top, srcRect.right - srcRect.left, srcRect.bottom - srcRect.top, BasicBitmap::BILINEAR);
+		return outBitmap;
+	}
+
+	virtual BasicBitmap* getBBitmap(SIZE scaleSize, RECT cropRect)
+	{
+		// scale and crop
+		BasicBitmap* outBitmap = new BasicBitmap(cropRect.right - cropRect.left, cropRect.bottom - cropRect.top, _fbitmap->Format());
+		outBitmap->ScaleCrop(0, 0, _fbitmap, scaleSize.cx, scaleSize.cy,
+			cropRect.left, cropRect.top, cropRect.right - cropRect.left, cropRect.bottom - cropRect.top,
+			PIXEL_FLAG_SRCCOPY | PIXEL_FLAG_BILINEAR);
 		return outBitmap;
 	}
 

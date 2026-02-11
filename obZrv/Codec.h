@@ -44,6 +44,9 @@ public:
 
 	// Get transformed bitmap of current frame
 	virtual BasicBitmap *getBBitmap(RECT srcRect, SIZE outSize) = 0;
+	// Get transformed bitmap of current frame: scale to scaleSize and then crop cropRect on scaled image.
+	// Result size shall be equal to or larger than cropRect, and the valid result area is on (0, 0, cropRect.w, cropRect.h)
+	virtual BasicBitmap* getBBitmap(SIZE scaleSize, RECT cropRect) = 0;
 
 	// animation properties
 	virtual int getLoopNum() const = 0;

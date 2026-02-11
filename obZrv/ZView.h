@@ -93,9 +93,16 @@ protected:
 		_viewBitmap = NULL;
 		_internalBitmap = false;
 	}
-	CRect _viewRect = { -1, -1, -1, -1 };		// rect of current view mapped into the original image
-	CSize _viewDim = { -1, -1 };	// size of current image view
-	CSize _viewWndDim = { -1, -1 };	// size of view window. may differ from _viewDim if the image is (maybe zoomed) small
+
+
+	CSize _viewWndDim = { -1, -1 };	// size of view window. may differ from _viewCrop if the image is (maybe zoomed) small
+	CSize _scaleSize = { -1, -1 };	// Full scaled size at current zooming setting
+	CSize _viewOffset = { 0, 0 };	// Display offset on scaled image, (0, 0) for at center
+	CRect _viewCrop = { -1, -1, -1, -1 };	// Actually display area on scaled image, considering _viewOffset
+
+	// Dragging
+	bool _isdragging = false;
+	CPoint _draggingOrigin = { -1, -1 };
 
 	// helpers to preserve mouse position on toolbar buttons after window size change
 	CPoint preserveMouse(int id);
@@ -108,6 +115,10 @@ public:
 	void onFrameUpdate();
 	// update status text
 	void updateStatus();
+	afx_msg void OnNcLButtonDown(UINT nHitTest, CPoint point);
+	afx_msg void OnLButtonDown(UINT nFlags, CPoint point);
+	afx_msg void OnLButtonUp(UINT nFlags, CPoint point);
+	afx_msg void OnMouseMove(UINT nFlags, CPoint point);
 };
 
 #ifndef _DEBUG  // debug version in ObZrvView.cpp
