@@ -27,15 +27,11 @@
 
 // determine the libwebp version to link against
 #if !defined(_M_X64)	// x86
-#	if !defined(_DLL)	// static crt
-#		if !defined(_DEBUG)	// release
-#			pragma comment(lib, "webp/libwebpdecoder-MT.lib")
-#			pragma comment(lib, "webp/libwebpdemux-MT.lib")
-#		else	// debug
-#			pragma comment(lib, "webp/libwebpdecoder-MTd.lib")
-#			pragma comment(lib, "webp/libwebpdemux_MTd.lib")
-#		endif	// _DEBUG
-#	endif	// _DLL
+#	pragma comment(lib, "webp/libwebp_x86_dll.lib")
+#	pragma comment(lib, "webp/libwebpdemux_x86_dll.lib")
+#else
+#	pragma comment(lib, "webp/libwebp_x64_dll.lib")
+#	pragma comment(lib, "webp/libwebpdemux_x64_dll.lib")
 #endif	// _M_X64
 
 #undef max
@@ -71,12 +67,14 @@ protected:
 		if (!imgfea.has_animation)
 		{
 			// not animated, just decode and buffer it
+			// BasicBitmap::A8R8G8B8/R8G8B8 -> A/R is the highest (last if little-endian) byte
+			// BGRA/BGR in WebPDecode seems to be the byte order. so WebPDecodeBGR(A)Into maps to (A8)R8G8B8
 			std::unique_ptr<BasicBitmap> bmp = std::make_unique<BasicBitmap>(imgfea.width, imgfea.height,
 				imgfea.has_alpha ? BasicBitmap::A8R8G8B8 : BasicBitmap::R8G8B8);
 			if (imgfea.has_alpha &&
-				!WebPDecodeARGBInto(_filebuf, _filesize, bmp->Bits(), bmp->Pitch() * bmp->Height(), bmp->Pitch()) ||
+				!WebPDecodeBGRAInto(_filebuf, _filesize, bmp->Bits(), bmp->Pitch() * bmp->Height(), bmp->Pitch()) ||
 				!imgfea.has_alpha &&
-				!WebPDecodeRGBInto(_filebuf, _filesize, bmp->Bits(), bmp->Pitch() * bmp->Height(), bmp->Pitch()))
+				!WebPDecodeBGRInto(_filebuf, _filesize, bmp->Bits(), bmp->Pitch() * bmp->Height(), bmp->Pitch()))
 				return IM_FAIL;
 
 			_fbitmap = bmp.release();
