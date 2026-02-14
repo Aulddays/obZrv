@@ -103,6 +103,7 @@ protected:
 	// Dragging
 	bool _isdragging = false;
 	CPoint _draggingOrigin = { -1, -1 };
+	CPoint _draggingCur = { -1, -1 };
 
 	// helpers to preserve mouse position on toolbar buttons after window size change
 	CPoint preserveMouse(int id);

@@ -79,6 +79,9 @@ BOOL ObZrvApp::InitInstance()
 	InitCtrls.dwICC = ICC_WIN95_CLASSES;
 	InitCommonControlsEx(&InitCtrls);
 
+	int BasicBitmap_SSE2_AVX_Enable();
+	BasicBitmap_SSE2_AVX_Enable();
+
 	CWinAppEx::InitInstance();
 
 

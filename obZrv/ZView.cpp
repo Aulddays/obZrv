@@ -129,9 +129,7 @@ void ObZrvView::OnDraw(CDC* pDc)
 		}
 		else
 		{
-			// TODO: must have been a window size change or zooming
-			assert(true);
-			// TODO: Adjust based on offset
+			assert(true); // TODO: Makesure: must have been a window size change or zooming
 			_scaleSize.cx = std::max(image->getDimension().cx * _zoomlevel / 100, 1l);
 			_scaleSize.cy = std::max(image->getDimension().cy * _zoomlevel / 100, 1l);
 			if (rect.Width() >= _scaleSize.cx)
@@ -153,6 +151,39 @@ void ObZrvView::OnDraw(CDC* pDc)
 			{
 				_viewCrop.top = (_scaleSize.cy - rect.Height()) / 2;
 				_viewCrop.bottom = _viewCrop.top + rect.Height();
+			}
+			// Adjust _viewCrop based on offsets
+			if (_viewOffset.cx != 0 || _viewOffset.cy != 0 || _isdragging && (_draggingOrigin.x != _draggingCur.x || _draggingOrigin.y != _draggingCur.y))
+			{
+				CSize offset = { 0, 0 };
+				if (_viewCrop.Width() < _scaleSize.cx)
+				{
+					offset.cx = _viewOffset.cx;	// base offset
+					if (_isdragging)
+						offset.cx -= _draggingCur.x - _draggingOrigin.x;	// dragging offset
+					// limit offset to be within _viewScale
+					if (_viewCrop.left + offset.cx < 0)
+						offset.cx = -_viewCrop.left;
+					if (_viewCrop.right + offset.cx > _scaleSize.cx)
+						offset.cx = _scaleSize.cx - _viewCrop.right;
+					_viewCrop.left += offset.cx;
+					_viewCrop.right += offset.cx;
+				}
+				if (_viewCrop.Height() < _scaleSize.cy)
+				{
+					offset.cy = _viewOffset.cy;	// base offset
+					if (_isdragging)
+						offset.cy -= _draggingCur.y - _draggingOrigin.y;	// dragging offset
+					// limit offset to be within _viewScale
+					if (_viewCrop.top + offset.cy < 0)
+						offset.cy = -_viewCrop.top;
+					if (_viewCrop.bottom + offset.cy > _scaleSize.cy)
+						offset.cy = _scaleSize.cy - _viewCrop.bottom;
+					_viewCrop.top += offset.cy;
+					_viewCrop.bottom += offset.cy;
+				}
+				if (!_isdragging && offset != _viewOffset)
+					_viewOffset = offset;	// write back adjusted offset
 			}
 		}
 
@@ -550,7 +581,7 @@ int ObZrvView::zoom(int inout, bool test)
 void ObZrvView::OnLButtonDown(UINT nFlags, CPoint point)
 {
 	_isdragging = true;
-	_draggingOrigin = point;
+	_draggingOrigin = _draggingCur = point;
 	SetCapture();
 	CView::OnLButtonDown(nFlags, point);
 }
@@ -558,11 +589,26 @@ void ObZrvView::OnLButtonDown(UINT nFlags, CPoint point)
 
 void ObZrvView::OnLButtonUp(UINT nFlags, CPoint point)
 {
+	if (_isdragging)
+	{
+		_isdragging = false;
+		ReleaseCapture();
+		_viewOffset.cx -= _draggingCur.x - _draggingOrigin.x;
+		_viewOffset.cy -= _draggingCur.y - _draggingOrigin.y;
+		releaseBitmap();
+		Invalidate(FALSE);
+	}
 	CView::OnLButtonUp(nFlags, point);
 }
 
 
 void ObZrvView::OnMouseMove(UINT nFlags, CPoint point)
 {
+	if (_isdragging)
+	{
+		_draggingCur = point;
+		releaseBitmap();
+		Invalidate(FALSE);
+	}
 	CView::OnMouseMove(nFlags, point);
 }
