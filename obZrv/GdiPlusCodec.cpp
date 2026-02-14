@@ -231,13 +231,15 @@ public:
 		return outBitmap;
 	}
 
-	virtual BasicBitmap* getBBitmap(SIZE scaleSize, RECT cropRect)
+	virtual BasicBitmap* getBBitmap(SIZE scaleSize, RECT cropRect, COLORREF bg)
 	{
 		// scale and crop
 		BasicBitmap* outBitmap = new BasicBitmap(cropRect.right - cropRect.left, cropRect.bottom - cropRect.top, _fbitmap->Format());
+		outBitmap->Fill(0, 0, cropRect.right - cropRect.left, cropRect.bottom - cropRect.top,
+			_pixel_asm_8888(255, GetRValue(bg), GetGValue(bg), GetBValue(bg)));
 		outBitmap->ScaleCrop(0, 0, _fbitmap, scaleSize.cx, scaleSize.cy,
 			cropRect.left, cropRect.top, cropRect.right - cropRect.left, cropRect.bottom - cropRect.top,
-			PIXEL_FLAG_SRCCOPY | PIXEL_FLAG_BILINEAR);
+			PIXEL_FLAG_BILINEAR);
 		return outBitmap;
 	}
 

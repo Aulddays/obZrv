@@ -53,7 +53,7 @@ public:
 #endif
 
 protected:
-	COLORREF _bgColor{ RGB(66, 66, 66) };
+	COLORREF _bgColor{ RGB(200, 200, 200) };
 
 // Generated message map functions
 protected:

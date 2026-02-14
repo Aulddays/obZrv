@@ -193,7 +193,7 @@ void ObZrvView::OnDraw(CDC* pDc)
 		if (!_viewBitmap)
 		{
 			//_viewBitmap = image->getBBitmap(_viewRect, _viewDim);
-			_viewBitmap = image->getBBitmap(_scaleSize, _viewCrop);
+			_viewBitmap = image->getBBitmap(_scaleSize, _viewCrop, _bgColor);
 		}
 		updateStatus();
 	}
@@ -456,7 +456,7 @@ void ObZrvView::onFrameUpdate()
 	releaseBitmap();
 	Image *image = GetDocument()->getImage();
 	if (image)
-		_viewBitmap = image->getBBitmap(_scaleSize, _viewCrop);
+		_viewBitmap = image->getBBitmap(_scaleSize, _viewCrop, _bgColor);
 	Invalidate(FALSE);
 }
 
@@ -549,6 +549,7 @@ int ObZrvView::zoom(int inout, bool test)
 	Image *image = GetDocument()->getImage();
 	if (!image)
 		return -1;
+	int orilevel = _zoomlevel != 0 ? _zoomlevel : 100;
 	if (inout == 0)
 		return 0;
 	else if (inout > 0)
@@ -570,6 +571,7 @@ int ObZrvView::zoom(int inout, bool test)
 			return 0;
 		_zoomlevel = newlevel;
 	}
+	_viewOffset = { _viewOffset.cx * _zoomlevel / orilevel, _viewOffset.cy * _zoomlevel / orilevel };	// keep image view center
 	CPoint mousepos = preserveMouse(inout > 0 ? ID_VIEW_ZOOMIN : ID_VIEW_ZOOMOUT);
 	fitWindow2Image(image, mousepos);
 	updateStatus();
