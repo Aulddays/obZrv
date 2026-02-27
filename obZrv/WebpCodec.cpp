@@ -145,7 +145,7 @@ public:
 			_pixel_asm_8888(255, GetRValue(bg), GetGValue(bg), GetBValue(bg)));
 		outBitmap->ScaleCrop(0, 0, _fbitmap, scaleSize.cx, scaleSize.cy,
 			cropRect.left, cropRect.top, cropRect.right - cropRect.left, cropRect.bottom - cropRect.top,
-			PIXEL_FLAG_BILINEAR);
+			PIXEL_FLAG_LANCZOS3);
 		return outBitmap;
 	}
 

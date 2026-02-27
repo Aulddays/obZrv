@@ -65,6 +65,7 @@
 #include "BasicBitmap.h"
 #include <algorithm>
 #include <stdint.h>
+#include <math.h>
 
 #ifndef PIXEL_NO_SYSTEM
 #if defined(_WIN32) || defined(WIN32) || defined(_WIN64) || defined(WIN64)
@@ -3203,8 +3204,10 @@ void BasicBitmap::Premultiply(bool reverse)
 //---------------------------------------------------------------------
 BasicBitmap::InterpRow BasicBitmap::InterpolateRowPtr = NULL;
 BasicBitmap::InterpCol BasicBitmap::InterpolateColPtr = NULL;
+BasicBitmap::BlendVert4Tap BasicBitmap::BlendVert4TapPtr = NULL;
+BasicBitmap::BlendVert6Tap BasicBitmap::BlendVert6TapPtr = NULL;
 
-void BasicBitmap::SetDriver(InterpRow fn) 
+void BasicBitmap::SetDriver(InterpRow fn)
 {
 	InterpolateRowPtr = fn;
 }
@@ -3212,6 +3215,16 @@ void BasicBitmap::SetDriver(InterpRow fn)
 void BasicBitmap::SetDriver(InterpCol fn)
 {
 	InterpolateColPtr = fn;
+}
+
+void BasicBitmap::SetDriver(BlendVert4Tap fn)
+{
+	BlendVert4TapPtr = fn;
+}
+
+void BasicBitmap::SetDriver(BlendVert6Tap fn)
+{
+	BlendVert6TapPtr = fn;
 }
 
 
@@ -3582,7 +3595,30 @@ void BasicBitmap::Scale(const BasicRect *rect, const BasicBitmap *src,
 //   source_y = offy + (cry + j) * incy
 // is invariant across different crop regions.
 // 
-// Optimize computation by Computing only the pixels within the crop region 
+// Optimize computation by Computing only the pixels within the crop region
+
+// forward declarations for weight tables and init (defined after ScaleCrop)
+extern IINT16 _bicubic_wtab[256][4];
+static void _bicubic_init_table();
+extern IINT16 _mitchell_wtab[256][4];
+static void _mitchell_init_table();
+extern IINT16 _lanczos2_wtab[256][4];
+static void _lanczos2_init_table();
+extern IINT16 _lanczos3_wtab[256][6];
+static void _lanczos3_init_table();
+extern IINT16 _sharpcubic_wtab[256][4];
+static void _sharpcubic_init_table();
+
+// forward declarations for _scalecrop_4tap / _scalecrop_6tap (defined after ScaleCrop)
+void _scalecrop_4tap(BasicBitmap *dst, int dx, int dy,
+	const BasicBitmap *src, int scw, int sch,
+	int crx, int cry, int crw, int crh,
+	int mode, IUINT32 color, const IINT16 (*wtab)[4]);
+void _scalecrop_6tap(BasicBitmap *dst, int dx, int dy,
+	const BasicBitmap *src, int scw, int sch,
+	int crx, int cry, int crw, int crh,
+	int mode, IUINT32 color, const IINT16 (*wtab)[6]);
+
 void BasicBitmap::ScaleCrop(
 	int dx, int dy,	// output position of cropped image
 	const BasicBitmap *src,
@@ -3617,6 +3653,46 @@ void BasicBitmap::ScaleCrop(
 		return;
 	if (crx + crw > scw || cry + crh > sch)
 		return;
+
+	// BICUBIC: 4-tap path with Catmull-Rom kernel
+	if (mode & PIXEL_FLAG_BICUBIC) {
+		_bicubic_init_table();
+		_scalecrop_4tap(this, dx, dy, src, scw, sch, crx, cry, crw, crh,
+		                mode, color, _bicubic_wtab);
+		return;
+	}
+
+	// MITCHELL: 4-tap path with Mitchell-Netravali kernel
+	if (mode & PIXEL_FLAG_MITCHELL) {
+		_mitchell_init_table();
+		_scalecrop_4tap(this, dx, dy, src, scw, sch, crx, cry, crw, crh,
+		                mode, color, _mitchell_wtab);
+		return;
+	}
+
+	// LANCZOS2: 4-tap path with Lanczos2 windowed sinc kernel
+	if (mode & PIXEL_FLAG_LANCZOS2) {
+		_lanczos2_init_table();
+		_scalecrop_4tap(this, dx, dy, src, scw, sch, crx, cry, crw, crh,
+		                mode, color, _lanczos2_wtab);
+		return;
+	}
+
+	// LANCZOS3: 6-tap path
+	if (mode & PIXEL_FLAG_LANCZOS3) {
+		_lanczos3_init_table();
+		_scalecrop_6tap(this, dx, dy, src, scw, sch, crx, cry, crw, crh,
+		                mode, color, _lanczos3_wtab);
+		return;
+	}
+
+	// SHARPCUBIC: 4-tap path with Sharp cubic B=0, C=0.75
+	if (mode & PIXEL_FLAG_SHARPCUBIC) {
+		_sharpcubic_init_table();
+		_scalecrop_4tap(this, dx, dy, src, scw, sch, crx, cry, crw, crh,
+		                mode, color, _sharpcubic_wtab);
+		return;
+	}
 
 	PixelFmt sfmt = src->_fmt;
 	PixelFmt dfmt = this->_fmt;
@@ -3661,6 +3737,15 @@ void BasicBitmap::ScaleCrop(
 	// The minimal source column range needed by interpcol.
 	int idx_min = global_startx >> 16;
 	int idx_max = (int)((global_startx + (IINT64)(crw - 1) * incx) >> 16);
+
+	// Clamp to valid source pixel range: the half-pixel offset (0x8000) can
+	// push coordinates beyond the source boundary at the right/bottom edge.
+	int src_xmax = (int)src->_w - 1;
+	if (idx_min < 0) idx_min = 0;
+	if (idx_min > src_xmax) idx_min = src_xmax;
+	if (idx_max < 0) idx_max = 0;
+	if (idx_max > src_xmax) idx_max = src_xmax;
+
 	int sw = idx_max - idx_min + 2;
 
 	// Determine which source columns to read.
@@ -3781,6 +3866,632 @@ void BasicBitmap::ScaleCrop(
 
 	internal_align_free(buffer);
 }
+
+
+//---------------------------------------------------------------------
+// Bicubic weight lookup table: 256 fraction values x 4 taps
+// Weights in 1.14 fixed-point (14 fractional bits, range ~ [-0.5, 1.5])
+// Total size: 256 x 4 x 2 = 2KB, fits in L1 cache.
+//---------------------------------------------------------------------
+IINT16 _bicubic_wtab[256][4];
+static int _bicubic_wtab_inited = 0;
+
+// forward declaration (defined at line ~5668)
+static inline float _pixel_bicubic(float x); // Catmull-Rom, equals to _pixel_mn_cubic(x, 0, 0.5)
+static inline float _pixel_mn_cubic(float x, float B, float C);
+static inline float _pixel_lanczos2(float x);
+static inline float _pixel_lanczos3(float x);
+
+// Parameterized 4-tap Mitchell-Netravali init: fills wtab[256][4] for given B, C
+static void _mn_cubic_init_table(IINT16 (*wtab)[4], float B, float C)
+{
+	for (int i = 0; i < 256; i++) {
+		float f = i / 256.0f;
+		// tap 0: pixel at xi-1, distance = 1+f
+		// tap 1: pixel at xi,   distance = f
+		// tap 2: pixel at xi+1, distance = 1-f
+		// tap 3: pixel at xi+2, distance = 2-f
+		wtab[i][0] = (IINT16)(_pixel_mn_cubic(1.0f + f, B, C) * 16384.0f);
+		wtab[i][1] = (IINT16)(_pixel_mn_cubic(f,        B, C) * 16384.0f);
+		wtab[i][2] = (IINT16)(_pixel_mn_cubic(1.0f - f, B, C) * 16384.0f);
+		wtab[i][3] = (IINT16)(_pixel_mn_cubic(2.0f - f, B, C) * 16384.0f);
+	}
+}
+
+static void _bicubic_init_table()
+{
+	if (_bicubic_wtab_inited) return;
+	_mn_cubic_init_table(_bicubic_wtab, 0.0f, 0.5f);  // Catmull-Rom
+	_bicubic_wtab_inited = 1;
+}
+
+//---------------------------------------------------------------------
+// Mitchell-Netravali (B=1/3, C=1/3) weight table: 256 x 4 taps, 1.14 fixed
+//---------------------------------------------------------------------
+IINT16 _mitchell_wtab[256][4];
+static int _mitchell_wtab_inited = 0;
+
+static void _mitchell_init_table()
+{
+	if (_mitchell_wtab_inited) return;
+	_mn_cubic_init_table(_mitchell_wtab, 1.0f/3.0f, 1.0f/3.0f);  // Mitchell
+	_mitchell_wtab_inited = 1;
+}
+
+//---------------------------------------------------------------------
+// Sharp cubic (B=0, C=0.75) weight table: 256 x 4 taps, 1.14 fixed
+//---------------------------------------------------------------------
+IINT16 _sharpcubic_wtab[256][4];
+static int _sharpcubic_wtab_inited = 0;
+
+static void _sharpcubic_init_table()
+{
+	if (_sharpcubic_wtab_inited) return;
+	_mn_cubic_init_table(_sharpcubic_wtab, 0.0f, 0.75f);  // Sharp cubic
+	_sharpcubic_wtab_inited = 1;
+}
+
+//---------------------------------------------------------------------
+// Lanczos2 weight table: 256 x 4 taps, 1.14 fixed, normalized
+//---------------------------------------------------------------------
+IINT16 _lanczos2_wtab[256][4];
+static int _lanczos2_wtab_inited = 0;
+
+static void _lanczos2_init_table()
+{
+	if (_lanczos2_wtab_inited) return;
+	for (int i = 0; i < 256; i++) {
+		float f = i / 256.0f;
+		float w[4];
+		w[0] = _pixel_lanczos2(1.0f + f);
+		w[1] = _pixel_lanczos2(f);
+		w[2] = _pixel_lanczos2(1.0f - f);
+		w[3] = _pixel_lanczos2(2.0f - f);
+		float sum = w[0] + w[1] + w[2] + w[3];
+		if (sum > 1e-6f) {
+			for (int t = 0; t < 4; t++)
+				_lanczos2_wtab[i][t] = (IINT16)(w[t] / sum * 16384.0f);
+		}	else {
+			_lanczos2_wtab[i][0] = _lanczos2_wtab[i][3] = 0;
+			_lanczos2_wtab[i][1] = _lanczos2_wtab[i][2] = 8192;
+		}
+	}
+	_lanczos2_wtab_inited = 1;
+}
+
+//---------------------------------------------------------------------
+// Lanczos3 weight table: 256 x 6 taps, 1.14 fixed, normalized
+//---------------------------------------------------------------------
+IINT16 _lanczos3_wtab[256][6];
+static int _lanczos3_wtab_inited = 0;
+
+static void _lanczos3_init_table()
+{
+	if (_lanczos3_wtab_inited) return;
+	for (int i = 0; i < 256; i++) {
+		float f = i / 256.0f;
+		// 6 taps: distances 2+f, 1+f, f, 1-f, 2-f, 3-f
+		float w[6];
+		w[0] = _pixel_lanczos3(2.0f + f);
+		w[1] = _pixel_lanczos3(1.0f + f);
+		w[2] = _pixel_lanczos3(f);
+		w[3] = _pixel_lanczos3(1.0f - f);
+		w[4] = _pixel_lanczos3(2.0f - f);
+		w[5] = _pixel_lanczos3(3.0f - f);
+		// Normalize to sum = 1.0 (Lanczos weights don't naturally sum to 1)
+		float sum = w[0] + w[1] + w[2] + w[3] + w[4] + w[5];
+		if (sum != 0.0f) {
+			for (int t = 0; t < 6; t++)
+				_lanczos3_wtab[i][t] = (IINT16)(w[t] / sum * 16384.0f);
+		}
+	}
+	_lanczos3_wtab_inited = 1;
+}
+
+
+//---------------------------------------------------------------------
+// Vertical 4-row bicubic blend: blend 4 source rows into one output row.
+// Uses per-channel 32-bit accumulation (safe for negative bicubic weights).
+// weights: IINT16[4] in 1.14 fixed-point from _bicubic_wtab.
+//---------------------------------------------------------------------
+static void _bicubic_blend_vert(IUINT32 *out, int w,
+	const IUINT32 *row0, const IUINT32 *row1,
+	const IUINT32 *row2, const IUINT32 *row3,
+	const IINT16 *weights)
+{
+	IINT32 w0 = weights[0], w1 = weights[1], w2 = weights[2], w3 = weights[3];
+
+	for (int i = 0; i < w; i++) {
+		IUINT32 p0 = row0[i], p1 = row1[i], p2 = row2[i], p3 = row3[i];
+
+		IINT32 b = (IINT32)(p0 & 0xff) * w0 + (IINT32)(p1 & 0xff) * w1
+		         + (IINT32)(p2 & 0xff) * w2 + (IINT32)(p3 & 0xff) * w3;
+		IINT32 g = (IINT32)((p0 >> 8) & 0xff) * w0 + (IINT32)((p1 >> 8) & 0xff) * w1
+		         + (IINT32)((p2 >> 8) & 0xff) * w2 + (IINT32)((p3 >> 8) & 0xff) * w3;
+		IINT32 r = (IINT32)((p0 >> 16) & 0xff) * w0 + (IINT32)((p1 >> 16) & 0xff) * w1
+		         + (IINT32)((p2 >> 16) & 0xff) * w2 + (IINT32)((p3 >> 16) & 0xff) * w3;
+		IINT32 a = (IINT32)((p0 >> 24) & 0xff) * w0 + (IINT32)((p1 >> 24) & 0xff) * w1
+		         + (IINT32)((p2 >> 24) & 0xff) * w2 + (IINT32)((p3 >> 24) & 0xff) * w3;
+
+		b = (b + (1 << 13)) >> 14;
+		g = (g + (1 << 13)) >> 14;
+		r = (r + (1 << 13)) >> 14;
+		a = (a + (1 << 13)) >> 14;
+
+		if (b < 0) b = 0; else if (b > 255) b = 255;
+		if (g < 0) g = 0; else if (g > 255) g = 255;
+		if (r < 0) r = 0; else if (r > 255) r = 255;
+		if (a < 0) a = 0; else if (a > 255) a = 255;
+
+		out[i] = (IUINT32)b | ((IUINT32)g << 8) |
+		         ((IUINT32)r << 16) | ((IUINT32)a << 24);
+	}
+}
+
+
+//---------------------------------------------------------------------
+// Vertical 6-row Lanczos3 blend: blend 6 source rows into one output row.
+// Uses per-channel 32-bit accumulation (safe for negative Lanczos weights).
+//---------------------------------------------------------------------
+static void _lanczos3_blend_vert(IUINT32 *out, int w,
+	const IUINT32 *row0, const IUINT32 *row1,
+	const IUINT32 *row2, const IUINT32 *row3,
+	const IUINT32 *row4, const IUINT32 *row5,
+	const IINT16 *weights)
+{
+	IINT32 w0 = weights[0], w1 = weights[1], w2 = weights[2];
+	IINT32 w3 = weights[3], w4 = weights[4], w5 = weights[5];
+
+	for (int i = 0; i < w; i++) {
+		IUINT32 p0 = row0[i], p1 = row1[i], p2 = row2[i];
+		IUINT32 p3 = row3[i], p4 = row4[i], p5 = row5[i];
+
+		IINT32 b = (IINT32)(p0 & 0xff) * w0 + (IINT32)(p1 & 0xff) * w1
+		         + (IINT32)(p2 & 0xff) * w2 + (IINT32)(p3 & 0xff) * w3
+		         + (IINT32)(p4 & 0xff) * w4 + (IINT32)(p5 & 0xff) * w5;
+		IINT32 g = (IINT32)((p0 >> 8) & 0xff) * w0 + (IINT32)((p1 >> 8) & 0xff) * w1
+		         + (IINT32)((p2 >> 8) & 0xff) * w2 + (IINT32)((p3 >> 8) & 0xff) * w3
+		         + (IINT32)((p4 >> 8) & 0xff) * w4 + (IINT32)((p5 >> 8) & 0xff) * w5;
+		IINT32 r = (IINT32)((p0 >> 16) & 0xff) * w0 + (IINT32)((p1 >> 16) & 0xff) * w1
+		         + (IINT32)((p2 >> 16) & 0xff) * w2 + (IINT32)((p3 >> 16) & 0xff) * w3
+		         + (IINT32)((p4 >> 16) & 0xff) * w4 + (IINT32)((p5 >> 16) & 0xff) * w5;
+		IINT32 a = (IINT32)((p0 >> 24) & 0xff) * w0 + (IINT32)((p1 >> 24) & 0xff) * w1
+		         + (IINT32)((p2 >> 24) & 0xff) * w2 + (IINT32)((p3 >> 24) & 0xff) * w3
+		         + (IINT32)((p4 >> 24) & 0xff) * w4 + (IINT32)((p5 >> 24) & 0xff) * w5;
+
+		b = (b + (1 << 13)) >> 14;
+		g = (g + (1 << 13)) >> 14;
+		r = (r + (1 << 13)) >> 14;
+		a = (a + (1 << 13)) >> 14;
+
+		if (b < 0) b = 0; else if (b > 255) b = 255;
+		if (g < 0) g = 0; else if (g > 255) g = 255;
+		if (r < 0) r = 0; else if (r > 255) r = 255;
+		if (a < 0) a = 0; else if (a > 255) a = 255;
+
+		out[i] = (IUINT32)b | ((IUINT32)g << 8) |
+		         ((IUINT32)r << 16) | ((IUINT32)a << 24);
+	}
+}
+
+
+//---------------------------------------------------------------------
+// Horizontal 4-tap resample: parameterized by weight table pointer.
+// src must be padded: 1 pixel on left, 3 on right.
+//---------------------------------------------------------------------
+static void _resample_horiz_4tap(IUINT32 *out, int w,
+	const IUINT32 *src, IINT32 x, IINT32 dx,
+	const IINT16 (*wtab)[4])
+{
+	for (int i = 0; i < w; i++) {
+		int xi = x >> 16;
+		int fraction = (x >> 8) & 0xff;
+		const IINT16 *wt = wtab[fraction];
+		IINT32 w0 = wt[0], w1 = wt[1], w2 = wt[2], w3 = wt[3];
+
+		IUINT32 p0 = src[xi - 1], p1 = src[xi], p2 = src[xi + 1], p3 = src[xi + 2];
+
+		IINT32 b = (IINT32)(p0 & 0xff) * w0 + (IINT32)(p1 & 0xff) * w1
+		         + (IINT32)(p2 & 0xff) * w2 + (IINT32)(p3 & 0xff) * w3;
+		IINT32 g = (IINT32)((p0 >> 8) & 0xff) * w0 + (IINT32)((p1 >> 8) & 0xff) * w1
+		         + (IINT32)((p2 >> 8) & 0xff) * w2 + (IINT32)((p3 >> 8) & 0xff) * w3;
+		IINT32 r = (IINT32)((p0 >> 16) & 0xff) * w0 + (IINT32)((p1 >> 16) & 0xff) * w1
+		         + (IINT32)((p2 >> 16) & 0xff) * w2 + (IINT32)((p3 >> 16) & 0xff) * w3;
+		IINT32 a = (IINT32)((p0 >> 24) & 0xff) * w0 + (IINT32)((p1 >> 24) & 0xff) * w1
+		         + (IINT32)((p2 >> 24) & 0xff) * w2 + (IINT32)((p3 >> 24) & 0xff) * w3;
+
+		b = (b + (1 << 13)) >> 14;
+		g = (g + (1 << 13)) >> 14;
+		r = (r + (1 << 13)) >> 14;
+		a = (a + (1 << 13)) >> 14;
+
+		if (b < 0) b = 0; else if (b > 255) b = 255;
+		if (g < 0) g = 0; else if (g > 255) g = 255;
+		if (r < 0) r = 0; else if (r > 255) r = 255;
+		if (a < 0) a = 0; else if (a > 255) a = 255;
+
+		out[i] = (IUINT32)b | ((IUINT32)g << 8) |
+		         ((IUINT32)r << 16) | ((IUINT32)a << 24);
+		x += dx;
+	}
+}
+
+//---------------------------------------------------------------------
+// Horizontal 6-tap resample for Lanczos3.
+// src must be padded: 2 pixels on left, 3 on right.
+//---------------------------------------------------------------------
+static void _resample_horiz_6tap(IUINT32 *out, int w,
+	const IUINT32 *src, IINT32 x, IINT32 dx,
+	const IINT16 (*wtab)[6])
+{
+	for (int i = 0; i < w; i++) {
+		int xi = x >> 16;
+		int fraction = (x >> 8) & 0xff;
+		const IINT16 *wt = wtab[fraction];
+		IINT32 w0 = wt[0], w1 = wt[1], w2 = wt[2];
+		IINT32 w3 = wt[3], w4 = wt[4], w5 = wt[5];
+
+		// 6-tap: src[xi-2], src[xi-1], src[xi], src[xi+1], src[xi+2], src[xi+3]
+		IUINT32 p0 = src[xi - 2], p1 = src[xi - 1], p2 = src[xi];
+		IUINT32 p3 = src[xi + 1], p4 = src[xi + 2], p5 = src[xi + 3];
+
+		IINT32 b = (IINT32)(p0 & 0xff) * w0 + (IINT32)(p1 & 0xff) * w1
+		         + (IINT32)(p2 & 0xff) * w2 + (IINT32)(p3 & 0xff) * w3
+		         + (IINT32)(p4 & 0xff) * w4 + (IINT32)(p5 & 0xff) * w5;
+		IINT32 g = (IINT32)((p0 >> 8) & 0xff) * w0 + (IINT32)((p1 >> 8) & 0xff) * w1
+		         + (IINT32)((p2 >> 8) & 0xff) * w2 + (IINT32)((p3 >> 8) & 0xff) * w3
+		         + (IINT32)((p4 >> 8) & 0xff) * w4 + (IINT32)((p5 >> 8) & 0xff) * w5;
+		IINT32 r = (IINT32)((p0 >> 16) & 0xff) * w0 + (IINT32)((p1 >> 16) & 0xff) * w1
+		         + (IINT32)((p2 >> 16) & 0xff) * w2 + (IINT32)((p3 >> 16) & 0xff) * w3
+		         + (IINT32)((p4 >> 16) & 0xff) * w4 + (IINT32)((p5 >> 16) & 0xff) * w5;
+		IINT32 a = (IINT32)((p0 >> 24) & 0xff) * w0 + (IINT32)((p1 >> 24) & 0xff) * w1
+		         + (IINT32)((p2 >> 24) & 0xff) * w2 + (IINT32)((p3 >> 24) & 0xff) * w3
+		         + (IINT32)((p4 >> 24) & 0xff) * w4 + (IINT32)((p5 >> 24) & 0xff) * w5;
+
+		b = (b + (1 << 13)) >> 14;
+		g = (g + (1 << 13)) >> 14;
+		r = (r + (1 << 13)) >> 14;
+		a = (a + (1 << 13)) >> 14;
+
+		if (b < 0) b = 0; else if (b > 255) b = 255;
+		if (g < 0) g = 0; else if (g > 255) g = 255;
+		if (r < 0) r = 0; else if (r > 255) r = 255;
+		if (a < 0) a = 0; else if (a > 255) a = 255;
+
+		out[i] = (IUINT32)b | ((IUINT32)g << 8) |
+		         ((IUINT32)r << 16) | ((IUINT32)a << 24);
+		x += dx;
+	}
+}
+
+
+//---------------------------------------------------------------------
+// Shared 4-tap ScaleCrop: used by both Catmull-Rom and Mitchell.
+// Parameterized by the weight table pointer.
+//---------------------------------------------------------------------
+void _scalecrop_4tap(BasicBitmap *dst, int dx, int dy,
+	const BasicBitmap *src, int scw, int sch,
+	int crx, int cry, int crw, int crh,
+	int mode, IUINT32 color, const IINT16 (*wtab)[4])
+{
+	if (src == NULL || scw <= 0 || sch <= 0) return;
+	if (crw <= 0 || crh <= 0) return;
+
+	// Clip output to destination
+	int dw = dst->Width(), dh = dst->Height();
+	if ((mode & PIXEL_FLAG_NOCLIP) == 0) {
+		if (dx < 0) { crx += -dx; crw += dx; dx = 0; }
+		if (dy < 0) { cry += -dy; crh += dy; dy = 0; }
+		if (dx + crw > dw) crw = dw - dx;
+		if (dy + crh > dh) crh = dh - dy;
+	}
+	else {
+		if (dx < 0 || dx + crw > dw || dy < 0 || dy + crh > dh)
+			return;
+	}
+
+	if (crh <= 0 || crw <= 0 || crx < 0 || cry < 0)
+		return;
+	if (crx + crw > scw || cry + crh > sch)
+		return;
+
+	BasicBitmap::PixelFmt sfmt = src->Format();
+	BasicBitmap::PixelFmt dfmt = dst->Format();
+
+	BasicBitmap::PixelDraw draw = BasicBitmap::GetDriver(dfmt, 0, false);
+	if (mode & PIXEL_FLAG_SRCOVER) draw = BasicBitmap::GetDriver(dfmt, 1, false);
+	else if (mode & PIXEL_FLAG_ADDITIVE) draw = BasicBitmap::GetDriver(dfmt, 2, false);
+	else if (mode & PIXEL_FLAG_SRCCOPY) draw = NULL;
+
+	// 16.16 fixed-point coordinate mapping
+	IINT32 incx = (int)(((IINT64)src->Width() << 16) / scw);
+	IINT32 incy = (int)(((IINT64)src->Height() << 16) / sch);
+	IINT32 offx = (scw == (int)src->Width()) ? 0 : 0x8000;
+	IINT32 offy = (sch == (int)src->Height()) ? 0 : 0x8000;
+
+	IINT32 global_startx = offx + (IINT32)((IINT64)crx * incx);
+	int idx_min_raw = (global_startx >> 16) - 1;
+	int idx_max_raw = (int)((global_startx + (IINT64)(crw - 1) * incx) >> 16) + 2;
+
+	int src_w = (int)src->Width();
+	int src_h = (int)src->Height();
+
+	int sx = (idx_min_raw < 0) ? 0 : idx_min_raw;
+	int sx_end = (idx_max_raw >= src_w) ? src_w - 1 : idx_max_raw;
+	int sw = sx_end - sx + 1;
+	if (sw <= 0) return;
+
+	IINT32 local_startx = global_startx - ((sx - 1) << 16);
+
+	int depth = src->Bpp();
+
+	int padded_sw = sw + 4;
+	int ring_size = sw;
+	int total_alloc = padded_sw + crw + 4 * ring_size;
+
+	IUINT32 *buffer = (IUINT32*)internal_align_malloc(total_alloc * sizeof(IUINT32), 16);
+	if (buffer == NULL) return;
+
+	IUINT32 *srcrow = buffer;
+	IUINT32 *cache = srcrow + padded_sw;
+	IUINT32 *ring[4];
+	ring[0] = cache + crw;
+	ring[1] = ring[0] + ring_size;
+	ring[2] = ring[1] + ring_size;
+	ring[3] = ring[2] + ring_size;
+
+	int last_yi = -100;
+
+	IINT32 starty = offy + (IINT32)((IINT64)cry * incy);
+
+	BasicBitmap::BlendVert4Tap vert_fn = BasicBitmap::BlendVert4TapPtr;
+
+	for (int j = 0; j < crh; j++) {
+		IINT32 cury = starty;
+		int yi = cury >> 16;
+		int frac_y = (cury >> 8) & 0xff;
+
+		int sy0 = yi - 1, sy1 = yi, sy2 = yi + 1, sy3 = yi + 2;
+
+		int shift = yi - last_yi;
+		if (shift <= 0 && last_yi >= 0) {
+			// all cached
+		}
+		else if (shift >= 1 && shift <= 3 && last_yi >= 0) {
+			IUINT32 *temp[4];
+			for (int k = 0; k < 4; k++) temp[k] = ring[k];
+			for (int k = 0; k < 4; k++) ring[k] = temp[(k + shift) & 3];
+			int new_rows[4] = { sy0, sy1, sy2, sy3 };
+			for (int k = 4 - shift; k < 4; k++) {
+				int ry = new_rows[k];
+				ry = (ry < 0) ? 0 : ((ry >= src_h) ? src_h - 1 : ry);
+				if (depth == 32) {
+					const IUINT32 *srcptr = ((const IUINT32*)src->Line(ry)) + sx;
+					internal_memcpy(ring[k], srcptr, sw * sizeof(IUINT32));
+				} else {
+					src->RowFetch(sx, ry, ring[k], sw);
+				}
+			}
+		}
+		else {
+			int rows[4] = { sy0, sy1, sy2, sy3 };
+			for (int k = 0; k < 4; k++) {
+				int ry = rows[k];
+				ry = (ry < 0) ? 0 : ((ry >= src_h) ? src_h - 1 : ry);
+				if (depth == 32) {
+					const IUINT32 *srcptr = ((const IUINT32*)src->Line(ry)) + sx;
+					internal_memcpy(ring[k], srcptr, sw * sizeof(IUINT32));
+				} else {
+					src->RowFetch(sx, ry, ring[k], sw);
+				}
+			}
+		}
+		last_yi = yi;
+
+		const IINT16 *vert_weights = wtab[frac_y & 0xff];
+		if (vert_fn) {
+			vert_fn(srcrow + 1, sw,
+				ring[0], ring[1], ring[2], ring[3], vert_weights);
+		} else {
+			_bicubic_blend_vert(srcrow + 1, sw,
+				ring[0], ring[1], ring[2], ring[3], vert_weights);
+		}
+
+		srcrow[0] = srcrow[1];
+		srcrow[sw + 1] = srcrow[sw];
+		srcrow[sw + 2] = srcrow[sw];
+		srcrow[sw + 3] = srcrow[sw];
+
+		if (sfmt == BasicBitmap::X8R8G8B8) {
+			BasicBitmap::CardSetAlpha(srcrow, padded_sw, 0xff);
+		}
+		if (color != 0xffffffff) {
+			BasicBitmap::CardMultiply(srcrow + 1, sw, color);
+		}
+
+		_resample_horiz_4tap(cache, crw, srcrow, local_startx, incx, wtab);
+
+		IUINT8 *dstrow = (IUINT8*)dst->Line(dy + j);
+		if (draw == NULL) {
+			if (dst->Bpp() == 32) {
+				internal_memcpy(((IUINT32*)dstrow) + dx, cache, crw * sizeof(IUINT32));
+			} else {
+				BasicBitmap::Store(dfmt, dstrow, dx, crw, cache);
+			}
+		} else {
+			draw(dstrow, dx, crw, cache);
+		}
+
+		starty += incy;
+	}
+
+	internal_align_free(buffer);
+}
+
+
+//---------------------------------------------------------------------
+// 6-tap ScaleCrop for Lanczos3: separable two-pass, 6-row ring buffer.
+//---------------------------------------------------------------------
+void _scalecrop_6tap(BasicBitmap *dst, int dx, int dy,
+	const BasicBitmap *src, int scw, int sch,
+	int crx, int cry, int crw, int crh,
+	int mode, IUINT32 color, const IINT16 (*wtab)[6])
+{
+	if (src == NULL || scw <= 0 || sch <= 0) return;
+	if (crw <= 0 || crh <= 0) return;
+
+	int dw = dst->Width(), dh = dst->Height();
+	if ((mode & PIXEL_FLAG_NOCLIP) == 0) {
+		if (dx < 0) { crx += -dx; crw += dx; dx = 0; }
+		if (dy < 0) { cry += -dy; crh += dy; dy = 0; }
+		if (dx + crw > dw) crw = dw - dx;
+		if (dy + crh > dh) crh = dh - dy;
+	} else {
+		if (dx < 0 || dx + crw > dw || dy < 0 || dy + crh > dh)
+			return;
+	}
+
+	if (crh <= 0 || crw <= 0 || crx < 0 || cry < 0)
+		return;
+	if (crx + crw > scw || cry + crh > sch)
+		return;
+
+	BasicBitmap::PixelFmt sfmt = src->Format();
+	BasicBitmap::PixelFmt dfmt = dst->Format();
+
+	BasicBitmap::PixelDraw draw = BasicBitmap::GetDriver(dfmt, 0, false);
+	if (mode & PIXEL_FLAG_SRCOVER) draw = BasicBitmap::GetDriver(dfmt, 1, false);
+	else if (mode & PIXEL_FLAG_ADDITIVE) draw = BasicBitmap::GetDriver(dfmt, 2, false);
+	else if (mode & PIXEL_FLAG_SRCCOPY) draw = NULL;
+
+	IINT32 incx = (int)(((IINT64)src->Width() << 16) / scw);
+	IINT32 incy = (int)(((IINT64)src->Height() << 16) / sch);
+	IINT32 offx = (scw == (int)src->Width()) ? 0 : 0x8000;
+	IINT32 offy = (sch == (int)src->Height()) ? 0 : 0x8000;
+
+	// 6-tap kernel accesses [xi-2, xi+3], so range is wider
+	IINT32 global_startx = offx + (IINT32)((IINT64)crx * incx);
+	int idx_min_raw = (global_startx >> 16) - 2;
+	int idx_max_raw = (int)((global_startx + (IINT64)(crw - 1) * incx) >> 16) + 3;
+
+	int src_w = (int)src->Width();
+	int src_h = (int)src->Height();
+
+	int sx = (idx_min_raw < 0) ? 0 : idx_min_raw;
+	int sx_end = (idx_max_raw >= src_w) ? src_w - 1 : idx_max_raw;
+	int sw = sx_end - sx + 1;
+	if (sw <= 0) return;
+
+	IINT32 local_startx = global_startx - ((sx - 2) << 16);
+
+	int depth = src->Bpp();
+
+	int padded_sw = sw + 5;  // 2 left pad + sw + 3 right pad
+	int ring_size = sw;
+	int total_alloc = padded_sw + crw + 6 * ring_size;
+
+	IUINT32 *buffer = (IUINT32*)internal_align_malloc(total_alloc * sizeof(IUINT32), 16);
+	if (buffer == NULL) return;
+
+	IUINT32 *srcrow = buffer;
+	IUINT32 *cache = srcrow + padded_sw;
+	IUINT32 *ring[6];
+	ring[0] = cache + crw;
+	for (int k = 1; k < 6; k++) ring[k] = ring[k - 1] + ring_size;
+
+	int last_yi = -100;
+
+	IINT32 starty = offy + (IINT32)((IINT64)cry * incy);
+
+	BasicBitmap::BlendVert6Tap vert_fn = BasicBitmap::BlendVert6TapPtr;
+
+	for (int j = 0; j < crh; j++) {
+		IINT32 cury = starty;
+		int yi = cury >> 16;
+		int frac_y = (cury >> 8) & 0xff;
+
+		// 6 source rows: yi-2, yi-1, yi, yi+1, yi+2, yi+3
+		int syrows[6] = { yi - 2, yi - 1, yi, yi + 1, yi + 2, yi + 3 };
+
+		int shift = yi - last_yi;
+		if (shift <= 0 && last_yi >= 0) {
+			// all cached
+		}
+		else if (shift >= 1 && shift <= 5 && last_yi >= 0) {
+			// Partial overlap: rotate and fetch new rows
+			IUINT32 *temp[6];
+			for (int k = 0; k < 6; k++) temp[k] = ring[k];
+			for (int k = 0; k < 6; k++) ring[k] = temp[(k + shift) % 6];
+			for (int k = 6 - shift; k < 6; k++) {
+				int ry = syrows[k];
+				ry = (ry < 0) ? 0 : ((ry >= src_h) ? src_h - 1 : ry);
+				if (depth == 32) {
+					const IUINT32 *srcptr = ((const IUINT32*)src->Line(ry)) + sx;
+					internal_memcpy(ring[k], srcptr, sw * sizeof(IUINT32));
+				} else {
+					src->RowFetch(sx, ry, ring[k], sw);
+				}
+			}
+		}
+		else {
+			for (int k = 0; k < 6; k++) {
+				int ry = syrows[k];
+				ry = (ry < 0) ? 0 : ((ry >= src_h) ? src_h - 1 : ry);
+				if (depth == 32) {
+					const IUINT32 *srcptr = ((const IUINT32*)src->Line(ry)) + sx;
+					internal_memcpy(ring[k], srcptr, sw * sizeof(IUINT32));
+				} else {
+					src->RowFetch(sx, ry, ring[k], sw);
+				}
+			}
+		}
+		last_yi = yi;
+
+		// Vertical pass: blend 6 rows into srcrow interior (starting at index 2)
+		const IINT16 *vert_weights = wtab[frac_y & 0xff];
+		if (vert_fn) {
+			vert_fn(srcrow + 2, sw,
+				ring[0], ring[1], ring[2], ring[3], ring[4], ring[5],
+				vert_weights);
+		} else {
+			_lanczos3_blend_vert(srcrow + 2, sw,
+				ring[0], ring[1], ring[2], ring[3], ring[4], ring[5],
+				vert_weights);
+		}
+
+		// Pad edges for horizontal 6-tap access:
+		srcrow[0] = srcrow[2];       // left pad
+		srcrow[1] = srcrow[2];
+		srcrow[sw + 2] = srcrow[sw + 1]; // right pad
+		srcrow[sw + 3] = srcrow[sw + 1];
+		srcrow[sw + 4] = srcrow[sw + 1];
+
+		if (sfmt == BasicBitmap::X8R8G8B8) {
+			BasicBitmap::CardSetAlpha(srcrow, padded_sw, 0xff);
+		}
+		if (color != 0xffffffff) {
+			BasicBitmap::CardMultiply(srcrow + 2, sw, color);
+		}
+
+		_resample_horiz_6tap(cache, crw, srcrow, local_startx, incx, wtab);
+
+		IUINT8 *dstrow = (IUINT8*)dst->Line(dy + j);
+		if (draw == NULL) {
+			if (dst->Bpp() == 32) {
+				internal_memcpy(((IUINT32*)dstrow) + dx, cache, crw * sizeof(IUINT32));
+			} else {
+				BasicBitmap::Store(dfmt, dstrow, dx, crw, cache);
+			}
+		} else {
+			draw(dstrow, dx, crw, cache);
+		}
+
+		starty += incy;
+	}
+
+	internal_align_free(buffer);
+}
+
 
 //---------------------------------------------------------------------
 // Shuffle 32 bits color
@@ -5600,6 +6311,7 @@ inline int _pixel_abs(int x) {
 	return (x < 0)? (-x) : x;
 }
 
+// bicubic (Catmull-Rom), equals to _pixel_mn_cubic(x, 0, 0.5)
 static inline float _pixel_bicubic(float x) {
 	if (x == 0.0f) return 1.0f;
 	if (x < 0.0f) x = -x;
@@ -5609,6 +6321,37 @@ static inline float _pixel_bicubic(float x) {
 	if (x <= 1.0f) return x3 * (a + 2.0f) - x2 * (a + 3.0f) + 1.0f;
 	if (x <= 2.0f) return x3 * a - x2 * a * 5.0f + 8.0f * a * x - 4.0f * a;
 	return 0.0f;
+}
+
+// Mitchell-Netravali general cubic kernel with parameters B, C
+// Catmull-Rom: B=0, C=0.5; Mitchell: B=1/3, C=1/3; Sharp: B=0, C=0.75
+static inline float _pixel_mn_cubic(float x, float B, float C) {
+	if (x < 0.0f) x = -x;
+	float x2 = x * x;
+	float x3 = x2 * x;
+	if (x <= 1.0f)
+		return ((12 - 9*B - 6*C)*x3 + (-18 + 12*B + 6*C)*x2 + (6 - 2*B)) / 6.0f;
+	if (x <= 2.0f)
+		return ((-B - 6*C)*x3 + (6*B + 30*C)*x2 + (-12*B - 48*C)*x + (8*B + 24*C)) / 6.0f;
+	return 0.0f;
+}
+
+// Lanczos2 windowed sinc kernel (support radius = 2, 4-tap)
+static inline float _pixel_lanczos2(float x) {
+	if (x < 0.0f) x = -x;
+	if (x < 1e-6f) return 1.0f;
+	if (x >= 2.0f) return 0.0f;
+	float px = 3.14159265358979f * x;
+	return (sinf(px) / px) * (sinf(px / 2.0f) / (px / 2.0f));
+}
+
+// Lanczos3 windowed sinc kernel
+static inline float _pixel_lanczos3(float x) {
+	if (x < 0.0f) x = -x;
+	if (x < 1e-6f) return 1.0f;
+	if (x >= 3.0f) return 0.0f;
+	float px = 3.14159265358979f * x;
+	return (sinf(px) / px) * (sinf(px / 3.0f) / (px / 3.0f));
 }
 
 IUINT32 BasicBitmap::SampleBicubic(float x, float y, bool repeat) const
@@ -5660,10 +6403,10 @@ IUINT32 BasicBitmap::SampleBicubic(float x, float y, bool repeat) const
 			a = a + weight * ((color & 0xff000000) >> 24);
 		}
 	}
-	IUINT32 r1 = (int)r;
-	IUINT32 g1 = (int)g;
-	IUINT32 b1 = (int)b;
-	IUINT32 a1 = (int)a;
+	int r1 = (int)(r + 0.5f);
+	int g1 = (int)(g + 0.5f);
+	int b1 = (int)(b + 0.5f);
+	int a1 = (int)(a + 0.5f);
 	r1 = _pixel_middle(r1, 0, 255);
 	g1 = _pixel_middle(g1, 0, 255);
 	b1 = _pixel_middle(b1, 0, 255);

@@ -239,7 +239,7 @@ public:
 			_pixel_asm_8888(255, GetRValue(bg), GetGValue(bg), GetBValue(bg)));
 		outBitmap->ScaleCrop(0, 0, _fbitmap, scaleSize.cx, scaleSize.cy,
 			cropRect.left, cropRect.top, cropRect.right - cropRect.left, cropRect.bottom - cropRect.top,
-			PIXEL_FLAG_BILINEAR);
+			PIXEL_FLAG_LANCZOS3);
 		return outBitmap;
 	}
 
@@ -361,7 +361,7 @@ static BasicBitmap *gdiplusConvert(Gdiplus::Bitmap *gbitmap, BasicBitmap::PixelF
 	case 8: fmt = BasicBitmap::G8; break;
 	case 555: fmt = BasicBitmap::X1R5G5B5; break;
 	case 565: fmt = BasicBitmap::R5G6B5; break;
-	case 888: fmt = BasicBitmap::R8G8B8; break;
+	case 888: fmt = gpixfmt == PixelFormat32bppRGB ? BasicBitmap::X8R8G8B8 : BasicBitmap::R8G8B8; break;
 	case 8888: fmt = BasicBitmap::A8R8G8B8; break;
 	default:
 		fmt = BasicBitmap::UNKNOW;

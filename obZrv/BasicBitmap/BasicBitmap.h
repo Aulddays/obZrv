@@ -504,6 +504,12 @@ extern const IUINT32 _pixel_scale_6[64];
 // If none set: Use "nearest"
 #define PIXEL_FLAG_LINEAR   128
 #define PIXEL_FLAG_BILINEAR 256
+// The following interpolation modes are only supported in ScaleCrop()
+#define PIXEL_FLAG_BICUBIC  512		// Catmull-Rom B=0, C=0.5 (4-tap)
+#define PIXEL_FLAG_MITCHELL 1024	// Mitchell-Netravali B=1/3, C=1/3 (4-tap)
+#define PIXEL_FLAG_LANCZOS2 2048	// Lanczos2 windowed sinc (4-tap)
+#define PIXEL_FLAG_LANCZOS3 4096	// Lanczos3 windowed sinc (6-tap)
+#define PIXEL_FLAG_SHARPCUBIC 8192	// Sharp cubic B=0, C=0.75 (4-tap)
 
 
 //---------------------------------------------------------------------
@@ -716,8 +722,8 @@ public:
 	//   source_x = offx + (crx + i) * incx
 	//   source_y = offy + (cry + j) * incy
 	// is invariant across different crop regions.
-	// 
-	// Optimize computation by Computing only the pixels within the crop region 
+	//
+	// Optimize computation by Computing only the pixels within the crop region
 	void ScaleCrop(
 		int dx, int dy,	// output position of cropped image
 		const BasicBitmap *src,
@@ -794,14 +800,33 @@ public:
 	typedef int (*InterpRow)(IUINT32 *card, int w, const IUINT32 *row1, 
 		const IUINT32 *row2, IINT32 fraction);		// 15.16 fixed point
 
-	typedef int (*InterpCol)(IUINT32 *card, int w, const IUINT32 *src, 
+	typedef int (*InterpCol)(IUINT32 *card, int w, const IUINT32 *src,
 		IINT32 x, IINT32 dx);		// 15.16 fixed point
+
+	// 4-tap vertical blend: weights is IINT16[4] in 1.14 fixed-point
+	typedef void (*BlendVert4Tap)(IUINT32 *out, int w,
+		const IUINT32 *row0, const IUINT32 *row1,
+		const IUINT32 *row2, const IUINT32 *row3,
+		const IINT16 *weights);
+
+	// 6-tap vertical blend: weights is IINT16[6] in 1.14 fixed-point
+	typedef void (*BlendVert6Tap)(IUINT32 *out, int w,
+		const IUINT32 *row0, const IUINT32 *row1,
+		const IUINT32 *row2, const IUINT32 *row3,
+		const IUINT32 *row4, const IUINT32 *row5,
+		const IINT16 *weights);
 
 	// interpolate row callback
 	static void SetDriver(InterpRow row);
 
 	// interpolate col callback
 	static void SetDriver(InterpCol col);
+
+	// 4tap (bicubic/mitchell/lanczos2) vertical blend callback
+	static void SetDriver(BlendVert4Tap fn);
+
+	// 6tap (lanczos3) vertical blend callback
+	static void SetDriver(BlendVert6Tap fn);
 
 public:
 
@@ -892,13 +917,23 @@ public:
 	// detect file type and load 
 	static BasicBitmap *LoadFile(const char *filename, PixelFmt fmt = UNKNOW, BasicColor *pal = NULL);
 
+	// friend helpers for scalecrop (file-scope in BasicBitmap.cpp)
+	friend void _scalecrop_4tap(BasicBitmap *dst, int dx, int dy,
+		const BasicBitmap *src, int scw, int sch,
+		int crx, int cry, int crw, int crh,
+		int mode, IUINT32 color, const IINT16 (*wtab)[4]);
+	friend void _scalecrop_6tap(BasicBitmap *dst, int dx, int dy,
+		const BasicBitmap *src, int scw, int sch,
+		int crx, int cry, int crw, int crh,
+		int mode, IUINT32 color, const IINT16 (*wtab)[6]);
+
 protected:
-	static int BlitNormal(int bpp, void *dbits, long dpitch, int dx, 
-		const void *sbits, long spitch, int sx, int w, int h, 
+	static int BlitNormal(int bpp, void *dbits, long dpitch, int dx,
+		const void *sbits, long spitch, int sx, int w, int h,
 		IUINT32 mask, int flip);
 
-	static int BlitMask(int bpp, void *dbits, long dpitch, int dx, 
-		const void *sbits, long spitch, int sx, int w, int h, 
+	static int BlitMask(int bpp, void *dbits, long dpitch, int dx,
+		const void *sbits, long spitch, int sx, int w, int h,
 		IUINT32 mask, int flip);
 
 	static int ClipRect(const int *clipdst, const int *clipsrc,
@@ -937,6 +972,8 @@ protected:
 
 	static InterpRow InterpolateRowPtr;
 	static InterpCol InterpolateColPtr;
+	static BlendVert4Tap BlendVert4TapPtr;
+	static BlendVert6Tap BlendVert6TapPtr;
 
 
 protected:

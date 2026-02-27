@@ -1714,7 +1714,287 @@ extern void BasicBitmap_ResampleDriver(int id, void *ptr);
 
 
 //---------------------------------------------------------------------
-// sse2 initialize
+extern void *(*_internal_hook_memcpy)(void *dst, const void *src, size_t n);
+extern void BasicBitmap_ResampleDriver(int id, void *ptr);
+
+
+//---------------------------------------------------------------------
+// SSE2 bicubic 4-row vertical blend
+// Processes 4 pixels per iteration using _mm_madd_epi16 for 32-bit
+// accumulation (safe for negative Catmull-Rom weights).
+//---------------------------------------------------------------------
+static void BlendVert4Tap_SSE2(IUINT32 *out, int w,
+	const IUINT32 *row0, const IUINT32 *row1,
+	const IUINT32 *row2, const IUINT32 *row3,
+	const IINT16 *weights)
+{
+	__m128i zero = _mm_setzero_si128();
+	__m128i round = _mm_set1_epi32(1 << 13);
+
+	// Pack weights for _mm_madd_epi16:
+	// w01 = [w0, w1, w0, w1, w0, w1, w0, w1] as 16-bit
+	// w23 = [w2, w3, w2, w3, w2, w3, w2, w3] as 16-bit
+	__m128i w01 = _mm_set1_epi32(
+		((unsigned short)weights[1] << 16) | (unsigned short)weights[0]);
+	__m128i w23 = _mm_set1_epi32(
+		((unsigned short)weights[3] << 16) | (unsigned short)weights[2]);
+
+	int i = 0;
+
+	// Process 8 pixels per iteration (two groups of 4)
+	for (; i + 8 <= w; i += 8) {
+		// --- First 4 pixels ---
+		__m128i r0a = _mm_loadu_si128((const __m128i*)(row0 + i));
+		__m128i r1a = _mm_loadu_si128((const __m128i*)(row1 + i));
+		__m128i r2a = _mm_loadu_si128((const __m128i*)(row2 + i));
+		__m128i r3a = _mm_loadu_si128((const __m128i*)(row3 + i));
+
+		__m128i r0a_lo = _mm_unpacklo_epi8(r0a, zero);
+		__m128i r0a_hi = _mm_unpackhi_epi8(r0a, zero);
+		__m128i r1a_lo = _mm_unpacklo_epi8(r1a, zero);
+		__m128i r1a_hi = _mm_unpackhi_epi8(r1a, zero);
+		__m128i r2a_lo = _mm_unpacklo_epi8(r2a, zero);
+		__m128i r2a_hi = _mm_unpackhi_epi8(r2a, zero);
+		__m128i r3a_lo = _mm_unpacklo_epi8(r3a, zero);
+		__m128i r3a_hi = _mm_unpackhi_epi8(r3a, zero);
+
+		// Pixel 0
+		__m128i s0 = _mm_add_epi32(
+			_mm_madd_epi16(_mm_unpacklo_epi16(r0a_lo, r1a_lo), w01),
+			_mm_madd_epi16(_mm_unpacklo_epi16(r2a_lo, r3a_lo), w23));
+		s0 = _mm_srai_epi32(_mm_add_epi32(s0, round), 14);
+		// Pixel 1
+		__m128i s1 = _mm_add_epi32(
+			_mm_madd_epi16(_mm_unpackhi_epi16(r0a_lo, r1a_lo), w01),
+			_mm_madd_epi16(_mm_unpackhi_epi16(r2a_lo, r3a_lo), w23));
+		s1 = _mm_srai_epi32(_mm_add_epi32(s1, round), 14);
+		// Pixel 2
+		__m128i s2 = _mm_add_epi32(
+			_mm_madd_epi16(_mm_unpacklo_epi16(r0a_hi, r1a_hi), w01),
+			_mm_madd_epi16(_mm_unpacklo_epi16(r2a_hi, r3a_hi), w23));
+		s2 = _mm_srai_epi32(_mm_add_epi32(s2, round), 14);
+		// Pixel 3
+		__m128i s3 = _mm_add_epi32(
+			_mm_madd_epi16(_mm_unpackhi_epi16(r0a_hi, r1a_hi), w01),
+			_mm_madd_epi16(_mm_unpackhi_epi16(r2a_hi, r3a_hi), w23));
+		s3 = _mm_srai_epi32(_mm_add_epi32(s3, round), 14);
+
+		__m128i packed_a = _mm_packus_epi16(_mm_packs_epi32(s0, s1),
+		                                    _mm_packs_epi32(s2, s3));
+		_mm_storeu_si128((__m128i*)(out + i), packed_a);
+
+		// --- Second 4 pixels ---
+		__m128i r0b = _mm_loadu_si128((const __m128i*)(row0 + i + 4));
+		__m128i r1b = _mm_loadu_si128((const __m128i*)(row1 + i + 4));
+		__m128i r2b = _mm_loadu_si128((const __m128i*)(row2 + i + 4));
+		__m128i r3b = _mm_loadu_si128((const __m128i*)(row3 + i + 4));
+
+		__m128i r0b_lo = _mm_unpacklo_epi8(r0b, zero);
+		__m128i r0b_hi = _mm_unpackhi_epi8(r0b, zero);
+		__m128i r1b_lo = _mm_unpacklo_epi8(r1b, zero);
+		__m128i r1b_hi = _mm_unpackhi_epi8(r1b, zero);
+		__m128i r2b_lo = _mm_unpacklo_epi8(r2b, zero);
+		__m128i r2b_hi = _mm_unpackhi_epi8(r2b, zero);
+		__m128i r3b_lo = _mm_unpacklo_epi8(r3b, zero);
+		__m128i r3b_hi = _mm_unpackhi_epi8(r3b, zero);
+
+		s0 = _mm_add_epi32(
+			_mm_madd_epi16(_mm_unpacklo_epi16(r0b_lo, r1b_lo), w01),
+			_mm_madd_epi16(_mm_unpacklo_epi16(r2b_lo, r3b_lo), w23));
+		s0 = _mm_srai_epi32(_mm_add_epi32(s0, round), 14);
+		s1 = _mm_add_epi32(
+			_mm_madd_epi16(_mm_unpackhi_epi16(r0b_lo, r1b_lo), w01),
+			_mm_madd_epi16(_mm_unpackhi_epi16(r2b_lo, r3b_lo), w23));
+		s1 = _mm_srai_epi32(_mm_add_epi32(s1, round), 14);
+		s2 = _mm_add_epi32(
+			_mm_madd_epi16(_mm_unpacklo_epi16(r0b_hi, r1b_hi), w01),
+			_mm_madd_epi16(_mm_unpacklo_epi16(r2b_hi, r3b_hi), w23));
+		s2 = _mm_srai_epi32(_mm_add_epi32(s2, round), 14);
+		s3 = _mm_add_epi32(
+			_mm_madd_epi16(_mm_unpackhi_epi16(r0b_hi, r1b_hi), w01),
+			_mm_madd_epi16(_mm_unpackhi_epi16(r2b_hi, r3b_hi), w23));
+		s3 = _mm_srai_epi32(_mm_add_epi32(s3, round), 14);
+
+		__m128i packed_b = _mm_packus_epi16(_mm_packs_epi32(s0, s1),
+		                                    _mm_packs_epi32(s2, s3));
+		_mm_storeu_si128((__m128i*)(out + i + 4), packed_b);
+	}
+
+	// Process remaining 4 pixels
+	for (; i + 4 <= w; i += 4) {
+		__m128i r0 = _mm_loadu_si128((const __m128i*)(row0 + i));
+		__m128i r1 = _mm_loadu_si128((const __m128i*)(row1 + i));
+		__m128i r2 = _mm_loadu_si128((const __m128i*)(row2 + i));
+		__m128i r3 = _mm_loadu_si128((const __m128i*)(row3 + i));
+
+		__m128i r0_lo = _mm_unpacklo_epi8(r0, zero);
+		__m128i r0_hi = _mm_unpackhi_epi8(r0, zero);
+		__m128i r1_lo = _mm_unpacklo_epi8(r1, zero);
+		__m128i r1_hi = _mm_unpackhi_epi8(r1, zero);
+		__m128i r2_lo = _mm_unpacklo_epi8(r2, zero);
+		__m128i r2_hi = _mm_unpackhi_epi8(r2, zero);
+		__m128i r3_lo = _mm_unpacklo_epi8(r3, zero);
+		__m128i r3_hi = _mm_unpackhi_epi8(r3, zero);
+
+		__m128i s0 = _mm_add_epi32(
+			_mm_madd_epi16(_mm_unpacklo_epi16(r0_lo, r1_lo), w01),
+			_mm_madd_epi16(_mm_unpacklo_epi16(r2_lo, r3_lo), w23));
+		s0 = _mm_srai_epi32(_mm_add_epi32(s0, round), 14);
+		__m128i s1 = _mm_add_epi32(
+			_mm_madd_epi16(_mm_unpackhi_epi16(r0_lo, r1_lo), w01),
+			_mm_madd_epi16(_mm_unpackhi_epi16(r2_lo, r3_lo), w23));
+		s1 = _mm_srai_epi32(_mm_add_epi32(s1, round), 14);
+		__m128i s2 = _mm_add_epi32(
+			_mm_madd_epi16(_mm_unpacklo_epi16(r0_hi, r1_hi), w01),
+			_mm_madd_epi16(_mm_unpacklo_epi16(r2_hi, r3_hi), w23));
+		s2 = _mm_srai_epi32(_mm_add_epi32(s2, round), 14);
+		__m128i s3 = _mm_add_epi32(
+			_mm_madd_epi16(_mm_unpackhi_epi16(r0_hi, r1_hi), w01),
+			_mm_madd_epi16(_mm_unpackhi_epi16(r2_hi, r3_hi), w23));
+		s3 = _mm_srai_epi32(_mm_add_epi32(s3, round), 14);
+
+		__m128i packed = _mm_packus_epi16(_mm_packs_epi32(s0, s1),
+		                                  _mm_packs_epi32(s2, s3));
+		_mm_storeu_si128((__m128i*)(out + i), packed);
+	}
+
+	// Scalar tail for remaining pixels
+	IINT32 ww0 = weights[0], ww1 = weights[1], ww2 = weights[2], ww3 = weights[3];
+	for (; i < w; i++) {
+		IUINT32 p0 = row0[i], p1 = row1[i], p2 = row2[i], p3 = row3[i];
+		IINT32 b = (IINT32)(p0 & 0xff) * ww0 + (IINT32)(p1 & 0xff) * ww1
+		         + (IINT32)(p2 & 0xff) * ww2 + (IINT32)(p3 & 0xff) * ww3;
+		IINT32 g = (IINT32)((p0>>8)&0xff) * ww0 + (IINT32)((p1>>8)&0xff) * ww1
+		         + (IINT32)((p2>>8)&0xff) * ww2 + (IINT32)((p3>>8)&0xff) * ww3;
+		IINT32 r = (IINT32)((p0>>16)&0xff) * ww0 + (IINT32)((p1>>16)&0xff) * ww1
+		         + (IINT32)((p2>>16)&0xff) * ww2 + (IINT32)((p3>>16)&0xff) * ww3;
+		IINT32 a = (IINT32)((p0>>24)&0xff) * ww0 + (IINT32)((p1>>24)&0xff) * ww1
+		         + (IINT32)((p2>>24)&0xff) * ww2 + (IINT32)((p3>>24)&0xff) * ww3;
+		b = (b + (1<<13)) >> 14; g = (g + (1<<13)) >> 14;
+		r = (r + (1<<13)) >> 14; a = (a + (1<<13)) >> 14;
+		if (b < 0) b = 0; else if (b > 255) b = 255;
+		if (g < 0) g = 0; else if (g > 255) g = 255;
+		if (r < 0) r = 0; else if (r > 255) r = 255;
+		if (a < 0) a = 0; else if (a > 255) a = 255;
+		out[i] = (IUINT32)b | ((IUINT32)g << 8) |
+		         ((IUINT32)r << 16) | ((IUINT32)a << 24);
+	}
+}
+
+
+//---------------------------------------------------------------------
+// SSE2 Lanczos3 6-row vertical blend
+// Processes 4 pixels per iteration using _mm_madd_epi16 for 32-bit
+// accumulation. 3 weight pairs: (w0,w1), (w2,w3), (w4,w5).
+//---------------------------------------------------------------------
+static void BlendVert6Tap_SSE2(IUINT32 *out, int w,
+	const IUINT32 *row0, const IUINT32 *row1,
+	const IUINT32 *row2, const IUINT32 *row3,
+	const IUINT32 *row4, const IUINT32 *row5,
+	const IINT16 *weights)
+{
+	__m128i zero = _mm_setzero_si128();
+	__m128i round = _mm_set1_epi32(1 << 13);
+
+	__m128i w01 = _mm_set1_epi32(
+		((unsigned short)weights[1] << 16) | (unsigned short)weights[0]);
+	__m128i w23 = _mm_set1_epi32(
+		((unsigned short)weights[3] << 16) | (unsigned short)weights[2]);
+	__m128i w45 = _mm_set1_epi32(
+		((unsigned short)weights[5] << 16) | (unsigned short)weights[4]);
+
+	int i = 0;
+
+	// Process 4 pixels per iteration
+	for (; i + 4 <= w; i += 4) {
+		__m128i r0 = _mm_loadu_si128((const __m128i*)(row0 + i));
+		__m128i r1 = _mm_loadu_si128((const __m128i*)(row1 + i));
+		__m128i r2 = _mm_loadu_si128((const __m128i*)(row2 + i));
+		__m128i r3 = _mm_loadu_si128((const __m128i*)(row3 + i));
+		__m128i r4 = _mm_loadu_si128((const __m128i*)(row4 + i));
+		__m128i r5 = _mm_loadu_si128((const __m128i*)(row5 + i));
+
+		// Unpack to 16-bit
+		__m128i r0_lo = _mm_unpacklo_epi8(r0, zero);
+		__m128i r0_hi = _mm_unpackhi_epi8(r0, zero);
+		__m128i r1_lo = _mm_unpacklo_epi8(r1, zero);
+		__m128i r1_hi = _mm_unpackhi_epi8(r1, zero);
+		__m128i r2_lo = _mm_unpacklo_epi8(r2, zero);
+		__m128i r2_hi = _mm_unpackhi_epi8(r2, zero);
+		__m128i r3_lo = _mm_unpacklo_epi8(r3, zero);
+		__m128i r3_hi = _mm_unpackhi_epi8(r3, zero);
+		__m128i r4_lo = _mm_unpacklo_epi8(r4, zero);
+		__m128i r4_hi = _mm_unpackhi_epi8(r4, zero);
+		__m128i r5_lo = _mm_unpacklo_epi8(r5, zero);
+		__m128i r5_hi = _mm_unpackhi_epi8(r5, zero);
+
+		// Pixel 0: unpacklo of lo halves
+		__m128i s0 = _mm_add_epi32(
+			_mm_add_epi32(
+				_mm_madd_epi16(_mm_unpacklo_epi16(r0_lo, r1_lo), w01),
+				_mm_madd_epi16(_mm_unpacklo_epi16(r2_lo, r3_lo), w23)),
+			_mm_madd_epi16(_mm_unpacklo_epi16(r4_lo, r5_lo), w45));
+		s0 = _mm_srai_epi32(_mm_add_epi32(s0, round), 14);
+
+		// Pixel 1: unpackhi of lo halves
+		__m128i s1 = _mm_add_epi32(
+			_mm_add_epi32(
+				_mm_madd_epi16(_mm_unpackhi_epi16(r0_lo, r1_lo), w01),
+				_mm_madd_epi16(_mm_unpackhi_epi16(r2_lo, r3_lo), w23)),
+			_mm_madd_epi16(_mm_unpackhi_epi16(r4_lo, r5_lo), w45));
+		s1 = _mm_srai_epi32(_mm_add_epi32(s1, round), 14);
+
+		// Pixel 2: unpacklo of hi halves
+		__m128i s2 = _mm_add_epi32(
+			_mm_add_epi32(
+				_mm_madd_epi16(_mm_unpacklo_epi16(r0_hi, r1_hi), w01),
+				_mm_madd_epi16(_mm_unpacklo_epi16(r2_hi, r3_hi), w23)),
+			_mm_madd_epi16(_mm_unpacklo_epi16(r4_hi, r5_hi), w45));
+		s2 = _mm_srai_epi32(_mm_add_epi32(s2, round), 14);
+
+		// Pixel 3: unpackhi of hi halves
+		__m128i s3 = _mm_add_epi32(
+			_mm_add_epi32(
+				_mm_madd_epi16(_mm_unpackhi_epi16(r0_hi, r1_hi), w01),
+				_mm_madd_epi16(_mm_unpackhi_epi16(r2_hi, r3_hi), w23)),
+			_mm_madd_epi16(_mm_unpackhi_epi16(r4_hi, r5_hi), w45));
+		s3 = _mm_srai_epi32(_mm_add_epi32(s3, round), 14);
+
+		__m128i packed = _mm_packus_epi16(_mm_packs_epi32(s0, s1),
+		                                  _mm_packs_epi32(s2, s3));
+		_mm_storeu_si128((__m128i*)(out + i), packed);
+	}
+
+	// Scalar tail
+	IINT32 ww0 = weights[0], ww1 = weights[1], ww2 = weights[2];
+	IINT32 ww3 = weights[3], ww4 = weights[4], ww5 = weights[5];
+	for (; i < w; i++) {
+		IUINT32 p0 = row0[i], p1 = row1[i], p2 = row2[i];
+		IUINT32 p3 = row3[i], p4 = row4[i], p5 = row5[i];
+		IINT32 b = (IINT32)(p0 & 0xff) * ww0 + (IINT32)(p1 & 0xff) * ww1
+		         + (IINT32)(p2 & 0xff) * ww2 + (IINT32)(p3 & 0xff) * ww3
+		         + (IINT32)(p4 & 0xff) * ww4 + (IINT32)(p5 & 0xff) * ww5;
+		IINT32 g = (IINT32)((p0>>8)&0xff) * ww0 + (IINT32)((p1>>8)&0xff) * ww1
+		         + (IINT32)((p2>>8)&0xff) * ww2 + (IINT32)((p3>>8)&0xff) * ww3
+		         + (IINT32)((p4>>8)&0xff) * ww4 + (IINT32)((p5>>8)&0xff) * ww5;
+		IINT32 r = (IINT32)((p0>>16)&0xff) * ww0 + (IINT32)((p1>>16)&0xff) * ww1
+		         + (IINT32)((p2>>16)&0xff) * ww2 + (IINT32)((p3>>16)&0xff) * ww3
+		         + (IINT32)((p4>>16)&0xff) * ww4 + (IINT32)((p5>>16)&0xff) * ww5;
+		IINT32 a = (IINT32)((p0>>24)&0xff) * ww0 + (IINT32)((p1>>24)&0xff) * ww1
+		         + (IINT32)((p2>>24)&0xff) * ww2 + (IINT32)((p3>>24)&0xff) * ww3
+		         + (IINT32)((p4>>24)&0xff) * ww4 + (IINT32)((p5>>24)&0xff) * ww5;
+		b = (b + (1<<13)) >> 14; g = (g + (1<<13)) >> 14;
+		r = (r + (1<<13)) >> 14; a = (a + (1<<13)) >> 14;
+		if (b < 0) b = 0; else if (b > 255) b = 255;
+		if (g < 0) g = 0; else if (g > 255) g = 255;
+		if (r < 0) r = 0; else if (r > 255) r = 255;
+		if (a < 0) a = 0; else if (a > 255) a = 255;
+		out[i] = (IUINT32)b | ((IUINT32)g << 8) |
+		         ((IUINT32)r << 16) | ((IUINT32)a << 24);
+	}
+}
+
+
 //---------------------------------------------------------------------
 int BasicBitmap_SSE2_AVX_Enable()
 {
@@ -1738,6 +2018,9 @@ int BasicBitmap_SSE2_AVX_Enable()
 		BasicBitmap::SetDriver(BasicBitmap::X8R8G8B8, PixelDraw_SSE2_SRCOVER_A8R8G8B8, 1);
 
 		BasicBitmap::SetDriver(InterpRow_SSE);
+
+		BasicBitmap::SetDriver(BlendVert4Tap_SSE2);
+		BasicBitmap::SetDriver(BlendVert6Tap_SSE2);
 
 		BasicBitmap_ResampleDriver(0, (void*)Resample_ShrinkX_SSE2);
 		BasicBitmap_ResampleDriver(1, (void*)Resample_ShrinkY_SSE2);
