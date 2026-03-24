@@ -1996,6 +1996,100 @@ static void BlendVert6Tap_SSE2(IUINT32 *out, int w,
 
 
 //---------------------------------------------------------------------
+// Box prefilter SSE2: accumulate one source row into column accumulators
+// col_acc layout: [b0 g0 r0 a0 b1 g1 r1 a1 ...] as IUINT32, 16-byte aligned
+//---------------------------------------------------------------------
+static void BoxAccumRow_SSE2(IUINT32 *col_acc, const IUINT32 *srow,
+	int ix_min, int nx, int sx_start, int sx_end, int sub_w)
+{
+	__m128i zero = _mm_setzero_si128();
+	int ix_local = 0;
+	int x_base = ix_min * nx;
+	for (; ix_local < sub_w; ix_local++, x_base += nx) {
+		int x0 = x_base;
+		int x1 = x0 + nx;
+		if (x0 < sx_start) x0 = sx_start;
+		if (x1 > sx_end) x1 = sx_end;
+		__m128i h_sum = _mm_setzero_si128();
+		for (int x = x0; x < x1; x++) {
+			__m128i pix = _mm_cvtsi32_si128(srow[x]);
+			__m128i pix16 = _mm_unpacklo_epi8(pix, zero);
+			__m128i pix32 = _mm_unpacklo_epi16(pix16, zero);
+			h_sum = _mm_add_epi32(h_sum, pix32);
+		}
+		__m128i *col = (__m128i*)(col_acc + ix_local * 4);
+		_mm_store_si128(col, _mm_add_epi32(_mm_load_si128(col), h_sum));
+	}
+}
+
+//---------------------------------------------------------------------
+// Box prefilter SSE2: output one row from column accumulators
+// Uses fixed-point reciprocal: avg = (sum * recip) >> 22
+//---------------------------------------------------------------------
+static void BoxOutputRow_SSE2(IUINT32 *out, IUINT32 *col_acc,
+	int sub_w, IUINT32 recip)
+{
+	__m128i v_recip = _mm_set1_epi32(recip);
+	for (int ix = 0; ix < sub_w; ix++) {
+		__m128i *col = (__m128i*)(col_acc + ix * 4);
+		__m128i s = _mm_load_si128(col);
+		// _mm_mul_epu32 multiplies lanes 0,2 as u32->u64
+		__m128i r_lo = _mm_mul_epu32(s, v_recip);
+		__m128i r_hi = _mm_mul_epu32(_mm_srli_si128(s, 4), v_recip);
+		// Shift >> 22 inside SSE register, then extract low 32 bits.
+		r_lo = _mm_srli_epi64(r_lo, 22);
+		r_hi = _mm_srli_epi64(r_hi, 22);
+		IUINT32 b = (IUINT32)_mm_cvtsi128_si32(r_lo);
+		IUINT32 g = (IUINT32)_mm_cvtsi128_si32(r_hi);
+		r_lo = _mm_srli_si128(r_lo, 8);
+		r_hi = _mm_srli_si128(r_hi, 8);
+		IUINT32 r = (IUINT32)_mm_cvtsi128_si32(r_lo);
+		IUINT32 a = (IUINT32)_mm_cvtsi128_si32(r_hi);
+		out[ix] = (a << 24) | (r << 16) | (g << 8) | b;
+		_mm_store_si128(col, _mm_setzero_si128());
+	}
+}
+
+//---------------------------------------------------------------------
+// Box prefilter SSE2: process ny source rows and produce one output row.
+// Combines accumulation + output in a single call to avoid per-row
+// function pointer dispatch overhead.
+//---------------------------------------------------------------------
+static void BoxDownsampleBlock_SSE2(IUINT32 *out, IUINT32 *col_acc,
+	const IUINT32 **src_lines, int ny_actual,
+	int ix_min, int nx, int sx_start, int sx_end, int sub_w,
+	IUINT32 recip)
+{
+	__m128i zero = _mm_setzero_si128();
+
+	// Accumulate ny_actual source rows
+	for (int r = 0; r < ny_actual; r++) {
+		const IUINT32 *srow = src_lines[r];
+		int ix_local = 0;
+		int x_base = ix_min * nx;
+		for (; ix_local < sub_w; ix_local++, x_base += nx) {
+			int x0 = x_base;
+			int x1 = x0 + nx;
+			if (x0 < sx_start) x0 = sx_start;
+			if (x1 > sx_end) x1 = sx_end;
+			__m128i h_sum = _mm_setzero_si128();
+			for (int x = x0; x < x1; x++) {
+				__m128i pix = _mm_cvtsi32_si128(srow[x]);
+				__m128i pix16 = _mm_unpacklo_epi8(pix, zero);
+				__m128i pix32 = _mm_unpacklo_epi16(pix16, zero);
+				h_sum = _mm_add_epi32(h_sum, pix32);
+			}
+			__m128i *col = (__m128i*)(col_acc + ix_local * 4);
+			_mm_store_si128(col, _mm_add_epi32(_mm_load_si128(col), h_sum));
+		}
+	}
+
+	// Output: reciprocal multiply and pack to ARGB
+	BoxOutputRow_SSE2(out, col_acc, sub_w, recip);
+}
+
+
+//---------------------------------------------------------------------
 int BasicBitmap_SSE2_AVX_Enable()
 {
 	int result = 0;
@@ -2021,6 +2115,10 @@ int BasicBitmap_SSE2_AVX_Enable()
 
 		BasicBitmap::SetDriver(BlendVert4Tap_SSE2);
 		BasicBitmap::SetDriver(BlendVert6Tap_SSE2);
+
+		BasicBitmap::SetDriver(BoxAccumRow_SSE2);
+		BasicBitmap::SetDriver(BoxOutputRow_SSE2);
+		BasicBitmap::SetDriver(BoxDownsampleBlock_SSE2);
 
 		BasicBitmap_ResampleDriver(0, (void*)Resample_ShrinkX_SSE2);
 		BasicBitmap_ResampleDriver(1, (void*)Resample_ShrinkY_SSE2);

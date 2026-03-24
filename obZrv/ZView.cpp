@@ -192,8 +192,10 @@ void ObZrvView::OnDraw(CDC* pDc)
 			releaseBitmap();
 		if (!_viewBitmap)
 		{
+			DWORD tmstart = GetTickCount();
 			//_viewBitmap = image->getBBitmap(_viewRect, _viewDim);
 			_viewBitmap = image->getBBitmap(_scaleSize, _viewCrop, _bgColor);
+			_timecost = GetTickCount() - tmstart;
 		}
 		updateStatus();
 	}
@@ -470,13 +472,13 @@ void ObZrvView::updateStatus()
 	enum { INFO_LEN = 1024 };
 	static wchar_t infobuf[INFO_LEN];
 	static char framebuf[20];
-	_snwprintf(infobuf, INFO_LEN, L"%d/%d | %s | %dx%d%S%S %s | %d%%",
+	_snwprintf(infobuf, INFO_LEN, L"%d/%d | %s | %dx%d%S%S %s | %d%% | %dms",
 		GetDocument()->_diridx + 1, (int)GetDocument()->_dirfiles.size(),
 		GetDocument()->_dirfiles[GetDocument()->_diridx].c_str(),
 		image->getDimension().cx, image->getDimension().cy,
 		image->isAnim() ? "x" : "",
 		image->isAnim() ? _itoa(image->getFrameCount(), framebuf, 10) : "",
-		image->getFormat(), _zoomlevel != 0 ? _zoomlevel : _fitlevel);
+		image->getFormat(), _zoomlevel != 0 ? _zoomlevel : _fitlevel, _timecost);
 	((ObZrvFrm *)AfxGetMainWnd())->SetInfoText(infobuf);
 }
 

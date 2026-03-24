@@ -66,6 +66,7 @@
 #include <algorithm>
 #include <stdint.h>
 #include <math.h>
+#include <memory>
 
 #ifndef PIXEL_NO_SYSTEM
 #if defined(_WIN32) || defined(WIN32) || defined(_WIN64) || defined(WIN64)
@@ -3206,6 +3207,9 @@ BasicBitmap::InterpRow BasicBitmap::InterpolateRowPtr = NULL;
 BasicBitmap::InterpCol BasicBitmap::InterpolateColPtr = NULL;
 BasicBitmap::BlendVert4Tap BasicBitmap::BlendVert4TapPtr = NULL;
 BasicBitmap::BlendVert6Tap BasicBitmap::BlendVert6TapPtr = NULL;
+BasicBitmap::BoxAccumRow BasicBitmap::BoxAccumRowPtr = NULL;
+BasicBitmap::BoxOutputRow BasicBitmap::BoxOutputRowPtr = NULL;
+BasicBitmap::BoxDownsampleBlock BasicBitmap::BoxDownsampleBlockPtr = NULL;
 
 void BasicBitmap::SetDriver(InterpRow fn)
 {
@@ -3225,6 +3229,21 @@ void BasicBitmap::SetDriver(BlendVert4Tap fn)
 void BasicBitmap::SetDriver(BlendVert6Tap fn)
 {
 	BlendVert6TapPtr = fn;
+}
+
+void BasicBitmap::SetDriver(BoxAccumRow fn)
+{
+	BoxAccumRowPtr = fn;
+}
+
+void BasicBitmap::SetDriver(BoxOutputRow fn)
+{
+	BoxOutputRowPtr = fn;
+}
+
+void BasicBitmap::SetDriver(BoxDownsampleBlock fn)
+{
+	BoxDownsampleBlockPtr = fn;
 }
 
 
@@ -3610,21 +3629,34 @@ extern IINT16 _sharpcubic_wtab[256][4];
 static void _sharpcubic_init_table();
 
 // forward declarations for _scalecrop_4tap / _scalecrop_6tap (defined after ScaleCrop)
+// When precomputed != NULL, the function uses the precomputed coordinate mapping
+// parameters instead of deriving them from src->Width()/Height().
+// This is needed for O5 sub-bitmap optimization where the source bitmap dimensions
+// don't match the global intermediate dimensions used for coordinate mapping.
+struct PrecomputedMapping {
+	IINT32 incx, incy;
+	IINT32 startx, starty;
+	IINT32 offx, offy;
+};
+
 void _scalecrop_4tap(BasicBitmap *dst, int dx, int dy,
 	const BasicBitmap *src, int scw, int sch,
 	int crx, int cry, int crw, int crh,
-	int mode, IUINT32 color, const IINT16 (*wtab)[4]);
+	int mode, IUINT32 color, const IINT16 (*wtab)[4],
+	const PrecomputedMapping *precomputed = NULL);
 void _scalecrop_6tap(BasicBitmap *dst, int dx, int dy,
 	const BasicBitmap *src, int scw, int sch,
 	int crx, int cry, int crw, int crh,
-	int mode, IUINT32 color, const IINT16 (*wtab)[6]);
+	int mode, IUINT32 color, const IINT16 (*wtab)[6],
+	const PrecomputedMapping *precomputed = NULL);
 
 void BasicBitmap::ScaleCrop(
 	int dx, int dy,	// output position of cropped image
 	const BasicBitmap *src,
 	int scw, int sch,	// scale to scw*sch
 	int crx, int cry, int crw, int crh,	// crop rect on scaled image
-	int mode/* = 0*/, IUINT32 color/* = 0xffffffff*/)
+	int mode/* = 0*/, IUINT32 color/* = 0xffffffff*/,
+	float prefilter_scale/* = 0.5f*/)
 {
 	if ((_w | _h | src->_w | src->_h) >= 0x7fff)
 		return;
@@ -3654,44 +3686,264 @@ void BasicBitmap::ScaleCrop(
 	if (crx + crw > scw || cry + crh > sch)
 		return;
 
+	// -------------------------------------------------------------------
+	// Box pre-filter for downscaling (scale < prefilter_scale threshold).
+	//
+	// When scale < 0.5, each destination pixel spans more source pixels than
+	// the interpolation kernel can cover, causing aliasing.  We box-downsample
+	// by integer factor n so remaining scale in [0.5, 1.0).
+	//
+	// Optimizations applied (see optimize_downscale.md):
+	//   O0: Streaming fused single-pass scan (sequential row access, column
+	//       accumulators in L1 cache, no inner loops)
+	//   O2: Fixed-point reciprocal replaces integer division
+	//   O3: SSE2 vectorization of channel accumulation and output packing
+	//   O5: Sub-bitmap allocation (only crop-needed region + margin), with
+	//       precomputed coordinate mapping passed to downstream branches
+	//
+	// Stability: box grid anchored at source origin; coordinate mapping uses
+	// global inter_w/inter_h; sub-bitmap offset subtracted from startx/starty.
+	// -------------------------------------------------------------------
+	std::unique_ptr<BasicBitmap> prefiltered;
+	PrecomputedMapping pf_mapping;
+	const PrecomputedMapping *pf_mapping_ptr = NULL;
+
+	if (prefilter_scale > 0.0f && src->_w > 0 && src->_h > 0) {
+		float scale_x = (float)scw / (float)src->_w;
+		float scale_y = (float)sch / (float)src->_h;
+
+		if (scale_x < prefilter_scale || scale_y < prefilter_scale) {
+			int nx = (scale_x < prefilter_scale) ? (int)(src->_w * prefilter_scale / scw + 0.5) : 1;
+			int ny = (scale_y < prefilter_scale) ? (int)(src->_h * prefilter_scale / sch + 0.5) : 1;
+			if (nx < 1) nx = 1;
+			if (ny < 1) ny = 1;
+
+			// Global intermediate dimensions (independent of crop!)
+			int inter_w = (int)src->_w / nx;
+			int inter_h = (int)src->_h / ny;
+			if (inter_w < 1) inter_w = 1;
+			if (inter_h < 1) inter_h = 1;
+
+			// Precompute coordinate mapping from global dimensions (O5)
+			IINT32 incx_new = (int)(((IINT64)inter_w << 16) / scw);
+			IINT32 incy_new = (int)(((IINT64)inter_h << 16) / sch);
+			IINT32 offx_new = (scw == inter_w) ? 0 : 0x8000;
+			IINT32 offy_new = (sch == inter_h) ? 0 : 0x8000;
+
+			// Sub-region of intermediate pixels the crop needs (+ margin for kernels)
+			int margin = 3;
+			int ix_min = (int)((offx_new + (IINT64)crx * incx_new) >> 16) - margin;
+			int ix_max = (int)((offx_new + (IINT64)(crx + crw - 1) * incx_new) >> 16) + 1 + margin;
+			int iy_min = (int)((offy_new + (IINT64)cry * incy_new) >> 16) - margin;
+			int iy_max = (int)((offy_new + (IINT64)(cry + crh - 1) * incy_new) >> 16) + 1 + margin;
+
+			if (ix_min < 0) ix_min = 0;
+			if (iy_min < 0) iy_min = 0;
+			if (ix_max >= inter_w) ix_max = inter_w - 1;
+			if (iy_max >= inter_h) iy_max = inter_h - 1;
+
+			int sub_w = ix_max - ix_min + 1;
+			int sub_h = iy_max - iy_min + 1;
+
+			if (sub_w > 0 && sub_h > 0) {
+				int depth = src->Bpp();
+
+				// O5: allocate only the sub-region, not full inter_w × inter_h
+				prefiltered.reset(new BasicBitmap(sub_w, sub_h,
+					(depth == 32) ? src->_fmt : A8R8G8B8));
+
+				if (prefiltered) {
+					int src_w = (int)src->_w;
+					int src_h = (int)src->_h;
+
+					// Source pixel range covered by the sub-region
+					int sy_start = iy_min * ny;
+					int sy_end   = (iy_max + 1) * ny;
+					if (sy_start < 0) sy_start = 0;
+					if (sy_end > src_h) sy_end = src_h;
+					int sx_start = ix_min * nx;
+					int sx_end   = (ix_max + 1) * nx;
+					if (sx_start < 0) sx_start = 0;
+					if (sx_end > src_w) sx_end = src_w;
+
+					// O2: fixed-point reciprocal for division
+					IUINT32 total = (IUINT32)(nx * ny);
+					IUINT32 recip = (total > 0) ? (IUINT32)((1ULL << 22) / total) : 0;
+
+					// O0: streaming fused scan with column accumulators
+					// Allocate column accumulators: sub_w × 4 channels
+					// Use a single aligned buffer: [r0 g0 b0 a0 r1 g1 b1 a1 ...]
+					// interleaved as 4 × IUINT32 per column for SSE2 friendliness
+					int col_buf_size = sub_w * 4;
+					IUINT32 *col_acc = (IUINT32*)internal_align_malloc(
+						col_buf_size * sizeof(IUINT32), 16);
+
+					if (col_acc) {
+						memset(col_acc, 0, col_buf_size * sizeof(IUINT32));
+
+						int iy_out = 0;
+
+						if (BoxDownsampleBlockPtr && depth == 32) {
+							// Fast path: block callback processes ny rows at once
+							// For 32-bit sources, rows can be passed directly
+							const IUINT32 **row_ptrs = (const IUINT32**)internal_align_malloc(
+								ny * sizeof(const IUINT32*), 16);
+							if (row_ptrs) {
+								for (int y = sy_start; y < sy_end && iy_out < sub_h; ) {
+									int ny_actual = 0;
+									for (int r = 0; r < ny && y < sy_end; r++, y++) {
+										row_ptrs[ny_actual++] = (const IUINT32*)src->Line(y);
+									}
+									IUINT32 *out = (IUINT32*)prefiltered->Line(iy_out);
+									BoxDownsampleBlockPtr(out, col_acc, row_ptrs, ny_actual,
+										ix_min, nx, sx_start, sx_end, sub_w, recip);
+									iy_out++;
+								}
+								internal_align_free(row_ptrs);
+							}
+						} else {
+							// Fallback: per-row accumulate + output
+							int row_in_block = 0;
+
+							for (int y = sy_start; y < sy_end; y++) {
+								const IUINT32 *srow;
+								IUINT32 fetch_buf_stack[2048];
+								IUINT32 *fetch_buf = NULL;
+
+								if (depth == 32) {
+									srow = (const IUINT32*)src->Line(y);
+								} else {
+									int need = sx_end - sx_start;
+									if (need <= 2048) {
+										fetch_buf = fetch_buf_stack;
+									} else {
+										fetch_buf = (IUINT32*)internal_align_malloc(
+											need * sizeof(IUINT32), 16);
+									}
+									src->RowFetch(sx_start, y, fetch_buf, need);
+									srow = fetch_buf - sx_start;
+								}
+
+								// Horizontal accumulation + vertical column accumulation
+								if (BoxAccumRowPtr) {
+									BoxAccumRowPtr(col_acc, srow, ix_min, nx,
+										sx_start, sx_end, sub_w);
+								} else {
+									int ix_local = 0;
+									int x_base = ix_min * nx;
+									for (; ix_local < sub_w; ix_local++, x_base += nx) {
+										int x0 = x_base;
+										int x1 = x0 + nx;
+										if (x0 < sx_start) x0 = sx_start;
+										if (x1 > sx_end) x1 = sx_end;
+										IUINT32 h_b = 0, h_g = 0, h_r = 0, h_a = 0;
+										for (int x = x0; x < x1; x++) {
+											IUINT32 c = srow[x];
+											h_b +=  c        & 0xff;
+											h_g += (c >>  8) & 0xff;
+											h_r += (c >> 16) & 0xff;
+											h_a += (c >> 24) & 0xff;
+										}
+										int base = ix_local * 4;
+										col_acc[base + 0] += h_b;
+										col_acc[base + 1] += h_g;
+										col_acc[base + 2] += h_r;
+										col_acc[base + 3] += h_a;
+									}
+								}
+								if (fetch_buf && fetch_buf != fetch_buf_stack) {
+									internal_align_free(fetch_buf);
+								}
+
+								row_in_block++;
+								if (row_in_block == ny && iy_out < sub_h) {
+									IUINT32 *out = (IUINT32*)prefiltered->Line(iy_out);
+									if (BoxOutputRowPtr) {
+										BoxOutputRowPtr(out, col_acc, sub_w, recip);
+									} else {
+										for (int ix_local_out = 0; ix_local_out < sub_w; ix_local_out++) {
+											int base = ix_local_out * 4;
+											IUINT32 b = (IUINT32)(((IUINT64)col_acc[base+0] * recip) >> 22);
+											IUINT32 g = (IUINT32)(((IUINT64)col_acc[base+1] * recip) >> 22);
+											IUINT32 r = (IUINT32)(((IUINT64)col_acc[base+2] * recip) >> 22);
+											IUINT32 a = (IUINT32)(((IUINT64)col_acc[base+3] * recip) >> 22);
+											out[ix_local_out] = (a << 24) | (r << 16) | (g << 8) | b;
+											col_acc[base+0] = col_acc[base+1] = 0;
+											col_acc[base+2] = col_acc[base+3] = 0;
+										}
+									}
+									iy_out++;
+									row_in_block = 0;
+								}
+							}
+						}
+
+						internal_align_free(col_acc);
+					}
+
+					// Note: all sub_w * sub_h pixels are filled by the streaming
+					// loop. The sub-bitmap already includes a margin around the
+					// crop-needed region (ix_min/iy_min were pushed outward by
+					// 'margin' pixels). Downstream kernels access pixels within
+					// [0..sub_w-1] * [0..sub_h-1] which are all valid.
+
+					// O5: precompute coordinate mapping for downstream branches
+					// Uses global inter_w/inter_h for incx/incy, then subtracts
+					// ix_min/iy_min offset so coordinates map into sub-bitmap [0..sub_w-1]
+					pf_mapping.incx = incx_new;
+					pf_mapping.incy = incy_new;
+					pf_mapping.offx = offx_new;
+					pf_mapping.offy = offy_new;
+					pf_mapping.startx = offx_new + (IINT32)((IINT64)crx * incx_new)
+					                    - (ix_min << 16);
+					pf_mapping.starty = offy_new + (IINT32)((IINT64)cry * incy_new)
+					                    - (iy_min << 16);
+					pf_mapping_ptr = &pf_mapping;
+					src = prefiltered.get();
+					//src->SaveBmp("prefiltered.bmp");
+				}
+			}
+		}
+	}
+
 	// BICUBIC: 4-tap path with Catmull-Rom kernel
 	if (mode & PIXEL_FLAG_BICUBIC) {
 		_bicubic_init_table();
 		_scalecrop_4tap(this, dx, dy, src, scw, sch, crx, cry, crw, crh,
-		                mode, color, _bicubic_wtab);
-		return;
+		                mode, color, _bicubic_wtab, pf_mapping_ptr);
+			return;
 	}
 
 	// MITCHELL: 4-tap path with Mitchell-Netravali kernel
 	if (mode & PIXEL_FLAG_MITCHELL) {
 		_mitchell_init_table();
 		_scalecrop_4tap(this, dx, dy, src, scw, sch, crx, cry, crw, crh,
-		                mode, color, _mitchell_wtab);
-		return;
+		                mode, color, _mitchell_wtab, pf_mapping_ptr);
+			return;
 	}
 
 	// LANCZOS2: 4-tap path with Lanczos2 windowed sinc kernel
 	if (mode & PIXEL_FLAG_LANCZOS2) {
 		_lanczos2_init_table();
 		_scalecrop_4tap(this, dx, dy, src, scw, sch, crx, cry, crw, crh,
-		                mode, color, _lanczos2_wtab);
-		return;
+		                mode, color, _lanczos2_wtab, pf_mapping_ptr);
+			return;
 	}
 
 	// LANCZOS3: 6-tap path
 	if (mode & PIXEL_FLAG_LANCZOS3) {
 		_lanczos3_init_table();
 		_scalecrop_6tap(this, dx, dy, src, scw, sch, crx, cry, crw, crh,
-		                mode, color, _lanczos3_wtab);
-		return;
+		                mode, color, _lanczos3_wtab, pf_mapping_ptr);
+			return;
 	}
 
 	// SHARPCUBIC: 4-tap path with Sharp cubic B=0, C=0.75
 	if (mode & PIXEL_FLAG_SHARPCUBIC) {
 		_sharpcubic_init_table();
 		_scalecrop_4tap(this, dx, dy, src, scw, sch, crx, cry, crw, crh,
-		                mode, color, _sharpcubic_wtab);
-		return;
+		                mode, color, _sharpcubic_wtab, pf_mapping_ptr);
+			return;
 	}
 
 	PixelFmt sfmt = src->_fmt;
@@ -3702,22 +3954,33 @@ void BasicBitmap::ScaleCrop(
 	else if (mode & PIXEL_FLAG_ADDITIVE) draw = GetDriver(dfmt, 2, false);
 	else if (mode & PIXEL_FLAG_SRCCOPY) draw = NULL;
 
-	// Global coordinate mapping in 16.16 fixed-point, to achieve stability
-	// incx/incy MUST be derived from the full scale dimensions (src_w/scw, src_h/sch).
-	// All subsequent coordinates are derived from them by multiplication, never by an independent division
-	IINT32 offx = (scw == src->_w) ? 0 : 0x8000;
-	IINT32 offy = (sch == src->_h) ? 0 : 0x8000;
-	IINT32 incx = (src->_w << 16) / scw;
-	IINT32 incy = (src->_h << 16) / sch;
+	// Coordinate mapping: use precomputed values if available (O5),
+	// otherwise derive from src dimensions as before.
+	IINT32 offx, offy, incx, incy;
+	if (pf_mapping_ptr) {
+		offx = pf_mapping_ptr->offx;
+		offy = pf_mapping_ptr->offy;
+		incx = pf_mapping_ptr->incx;
+		incy = pf_mapping_ptr->incy;
+	} else {
+		offx = (scw == src->_w) ? 0 : 0x8000;
+		offy = (sch == src->_h) ? 0 : 0x8000;
+		incx = (src->_w << 16) / scw;
+		incy = (src->_h << 16) / sch;
+	}
 
-	// global_startx: the source X (16.16) for crop pixel 0, equivalent to
-	// what Scale() would compute for dest pixel crx: offx + crx * incx.
-	IINT32 global_startx = offx + (IINT32)((IINT64)crx * incx);
+	IINT32 global_startx;
+	IINT32 starty;
 
-	// starty: the source Y (16.16) for crop row 0.
-	// VFLIP: start from the bottom of the source and walk upward.
-	IINT32 starty = offy + (IINT32)((IINT64)cry * incy);
-	if (mode & PIXEL_FLAG_VFLIP) {
+	if (pf_mapping_ptr) {
+		global_startx = pf_mapping_ptr->startx;
+		starty = pf_mapping_ptr->starty;
+	} else {
+		global_startx = offx + (IINT32)((IINT64)crx * incx);
+		starty = offy + (IINT32)((IINT64)cry * incy);
+	}
+
+	if (!pf_mapping_ptr && (mode & PIXEL_FLAG_VFLIP)) {
 		starty = ((src->_h - 1) << 16) - offy - (IINT32)((IINT64)cry * incy);
 	}
 
@@ -3865,6 +4128,18 @@ void BasicBitmap::ScaleCrop(
 	}
 
 	internal_align_free(buffer);
+}
+
+void BasicBitmap::ScaleCropAda(
+	int dx, int dy,	// output position of cropped image
+	const BasicBitmap* src,
+	int scw, int sch,	// scale to scw*sch
+	int crx, int cry, int crw, int crh)	// crop rect on scaled image
+{
+	if (src->_w >= 20 && src->_h >= 20 && src->_w >= scw * 3 && src->_h >= sch * 3)	// extreme downacale, use pre-avg-filter + bicubic
+		ScaleCrop(dx, dy, src, scw, sch, crx, cry, crw, crh, PIXEL_FLAG_BILINEAR, 0xffffffff, 0.6);
+	else
+		ScaleCrop(dx, dy, src, scw, sch, crx, cry, crw, crh, PIXEL_FLAG_LANCZOS3, 0xffffffff, 0);
 }
 
 
@@ -4172,7 +4447,8 @@ static void _resample_horiz_6tap(IUINT32 *out, int w,
 void _scalecrop_4tap(BasicBitmap *dst, int dx, int dy,
 	const BasicBitmap *src, int scw, int sch,
 	int crx, int cry, int crw, int crh,
-	int mode, IUINT32 color, const IINT16 (*wtab)[4])
+	int mode, IUINT32 color, const IINT16 (*wtab)[4],
+	const PrecomputedMapping *precomputed)
 {
 	if (src == NULL || scw <= 0 || sch <= 0) return;
 	if (crw <= 0 || crh <= 0) return;
@@ -4204,12 +4480,23 @@ void _scalecrop_4tap(BasicBitmap *dst, int dx, int dy,
 	else if (mode & PIXEL_FLAG_SRCCOPY) draw = NULL;
 
 	// 16.16 fixed-point coordinate mapping
-	IINT32 incx = (int)(((IINT64)src->Width() << 16) / scw);
-	IINT32 incy = (int)(((IINT64)src->Height() << 16) / sch);
-	IINT32 offx = (scw == (int)src->Width()) ? 0 : 0x8000;
-	IINT32 offy = (sch == (int)src->Height()) ? 0 : 0x8000;
+	// Use precomputed values from O5 sub-bitmap if available
+	IINT32 incx, incy, offx, offy;
+	if (precomputed) {
+		incx = precomputed->incx;
+		incy = precomputed->incy;
+		offx = precomputed->offx;
+		offy = precomputed->offy;
+	} else {
+		incx = (int)(((IINT64)src->Width() << 16) / scw);
+		incy = (int)(((IINT64)src->Height() << 16) / sch);
+		offx = (scw == (int)src->Width()) ? 0 : 0x8000;
+		offy = (sch == (int)src->Height()) ? 0 : 0x8000;
+	}
 
-	IINT32 global_startx = offx + (IINT32)((IINT64)crx * incx);
+	IINT32 global_startx = precomputed
+		? precomputed->startx
+		: offx + (IINT32)((IINT64)crx * incx);
 	int idx_min_raw = (global_startx >> 16) - 1;
 	int idx_max_raw = (int)((global_startx + (IINT64)(crw - 1) * incx) >> 16) + 2;
 
@@ -4242,7 +4529,9 @@ void _scalecrop_4tap(BasicBitmap *dst, int dx, int dy,
 
 	int last_yi = -100;
 
-	IINT32 starty = offy + (IINT32)((IINT64)cry * incy);
+	IINT32 starty = precomputed
+		? precomputed->starty
+		: offy + (IINT32)((IINT64)cry * incy);
 
 	BasicBitmap::BlendVert4Tap vert_fn = BasicBitmap::BlendVert4TapPtr;
 
@@ -4335,7 +4624,8 @@ void _scalecrop_4tap(BasicBitmap *dst, int dx, int dy,
 void _scalecrop_6tap(BasicBitmap *dst, int dx, int dy,
 	const BasicBitmap *src, int scw, int sch,
 	int crx, int cry, int crw, int crh,
-	int mode, IUINT32 color, const IINT16 (*wtab)[6])
+	int mode, IUINT32 color, const IINT16 (*wtab)[6],
+	const PrecomputedMapping *precomputed)
 {
 	if (src == NULL || scw <= 0 || sch <= 0) return;
 	if (crw <= 0 || crh <= 0) return;
@@ -4364,13 +4654,23 @@ void _scalecrop_6tap(BasicBitmap *dst, int dx, int dy,
 	else if (mode & PIXEL_FLAG_ADDITIVE) draw = BasicBitmap::GetDriver(dfmt, 2, false);
 	else if (mode & PIXEL_FLAG_SRCCOPY) draw = NULL;
 
-	IINT32 incx = (int)(((IINT64)src->Width() << 16) / scw);
-	IINT32 incy = (int)(((IINT64)src->Height() << 16) / sch);
-	IINT32 offx = (scw == (int)src->Width()) ? 0 : 0x8000;
-	IINT32 offy = (sch == (int)src->Height()) ? 0 : 0x8000;
+	IINT32 incx, incy, offx, offy;
+	if (precomputed) {
+		incx = precomputed->incx;
+		incy = precomputed->incy;
+		offx = precomputed->offx;
+		offy = precomputed->offy;
+	} else {
+		incx = (int)(((IINT64)src->Width() << 16) / scw);
+		incy = (int)(((IINT64)src->Height() << 16) / sch);
+		offx = (scw == (int)src->Width()) ? 0 : 0x8000;
+		offy = (sch == (int)src->Height()) ? 0 : 0x8000;
+	}
 
 	// 6-tap kernel accesses [xi-2, xi+3], so range is wider
-	IINT32 global_startx = offx + (IINT32)((IINT64)crx * incx);
+	IINT32 global_startx = precomputed
+		? precomputed->startx
+		: offx + (IINT32)((IINT64)crx * incx);
 	int idx_min_raw = (global_startx >> 16) - 2;
 	int idx_max_raw = (int)((global_startx + (IINT64)(crw - 1) * incx) >> 16) + 3;
 
@@ -4401,7 +4701,9 @@ void _scalecrop_6tap(BasicBitmap *dst, int dx, int dy,
 
 	int last_yi = -100;
 
-	IINT32 starty = offy + (IINT32)((IINT64)cry * incy);
+	IINT32 starty = precomputed
+		? precomputed->starty
+		: offy + (IINT32)((IINT64)cry * incy);
 
 	BasicBitmap::BlendVert6Tap vert_fn = BasicBitmap::BlendVert6TapPtr;
 

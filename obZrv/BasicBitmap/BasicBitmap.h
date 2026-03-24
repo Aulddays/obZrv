@@ -557,6 +557,8 @@ struct BasicError
 //=====================================================================
 // BasicBitmap
 //=====================================================================
+struct PrecomputedMapping;  // forward declaration for O5 sub-bitmap optimization
+
 class BasicBitmap
 {
 public:
@@ -724,12 +726,23 @@ public:
 	// is invariant across different crop regions.
 	//
 	// Optimize computation by Computing only the pixels within the crop region
+	// prefilter_scale: when the effective scale ratio (scw/src_w or sch/src_h)
+	// is below this threshold, a box pre-filter is applied before interpolation
+	// to avoid aliasing.  Set to 0.0f to disable pre-filtering.
+	// Default 0.5f is a good balance for all interpolation modes.
 	void ScaleCrop(
 		int dx, int dy,	// output position of cropped image
 		const BasicBitmap *src,
 		int scw, int sch,	// scale to scw*sch
 		int crx, int cry, int crw, int crh,	// crop rect on scaled image
-		int mode = 0, IUINT32 color = 0xffffffff);
+		int mode = 0, IUINT32 color = 0xffffffff,
+		float prefilter_scale = 0.5f);
+
+	void ScaleCropAda(
+		int dx, int dy,	// output position of cropped image
+		const BasicBitmap* src,
+		int scw, int sch,	// scale to scw*sch
+		int crx, int cry, int crw, int crh);	// crop rect on scaled image
 
 	// premultiply with alpha
 	void Premultiply(bool reverse = false);
@@ -816,6 +829,30 @@ public:
 		const IUINT32 *row4, const IUINT32 *row5,
 		const IINT16 *weights);
 
+	// box prefilter: accumulate one source row into column accumulators
+	// col_acc: aligned IUINT32 array of sub_w*4 elements [b,g,r,a per column]
+	// srow: source row pixels (indexed by absolute x coordinate)
+	// ix_min: first intermediate column index; nx: pixels per box cell
+	// sx_start/sx_end: valid source x range; sub_w: number of output columns
+	typedef void (*BoxAccumRow)(IUINT32 *col_acc, const IUINT32 *srow,
+		int ix_min, int nx, int sx_start, int sx_end, int sub_w);
+
+	// box prefilter: output one row from column accumulators
+	// out: output pixel row; col_acc: column accumulators (cleared after use)
+	// sub_w: number of output columns; recip: (1<<22)/total fixed-point reciprocal
+	typedef void (*BoxOutputRow)(IUINT32 *out, IUINT32 *col_acc,
+		int sub_w, IUINT32 recip);
+
+	// box prefilter: complete box downsample for one output row block
+	// Processes ny source rows, accumulating into col_acc and producing one
+	// output row. This batches AccumRow + OutputRow to avoid per-row dispatch.
+	// src_lines: array of ny_actual pointers to source row data (absolute x indexed)
+	// ny_actual: number of source rows to process
+	typedef void (*BoxDownsampleBlock)(IUINT32 *out, IUINT32 *col_acc,
+		const IUINT32 **src_lines, int ny_actual,
+		int ix_min, int nx, int sx_start, int sx_end, int sub_w,
+		IUINT32 recip);
+
 	// interpolate row callback
 	static void SetDriver(InterpRow row);
 
@@ -827,6 +864,15 @@ public:
 
 	// 6tap (lanczos3) vertical blend callback
 	static void SetDriver(BlendVert6Tap fn);
+
+	// box prefilter row accumulation callback
+	static void SetDriver(BoxAccumRow fn);
+
+	// box prefilter output row callback
+	static void SetDriver(BoxOutputRow fn);
+
+	// box prefilter block downsample callback
+	static void SetDriver(BoxDownsampleBlock fn);
 
 public:
 
@@ -921,11 +967,13 @@ public:
 	friend void _scalecrop_4tap(BasicBitmap *dst, int dx, int dy,
 		const BasicBitmap *src, int scw, int sch,
 		int crx, int cry, int crw, int crh,
-		int mode, IUINT32 color, const IINT16 (*wtab)[4]);
+		int mode, IUINT32 color, const IINT16 (*wtab)[4],
+		const PrecomputedMapping *precomputed);
 	friend void _scalecrop_6tap(BasicBitmap *dst, int dx, int dy,
 		const BasicBitmap *src, int scw, int sch,
 		int crx, int cry, int crw, int crh,
-		int mode, IUINT32 color, const IINT16 (*wtab)[6]);
+		int mode, IUINT32 color, const IINT16 (*wtab)[6],
+		const PrecomputedMapping *precomputed);
 
 protected:
 	static int BlitNormal(int bpp, void *dbits, long dpitch, int dx,
@@ -974,6 +1022,9 @@ protected:
 	static InterpCol InterpolateColPtr;
 	static BlendVert4Tap BlendVert4TapPtr;
 	static BlendVert6Tap BlendVert6TapPtr;
+	static BoxAccumRow BoxAccumRowPtr;
+	static BoxOutputRow BoxOutputRowPtr;
+	static BoxDownsampleBlock BoxDownsampleBlockPtr;
 
 
 protected:

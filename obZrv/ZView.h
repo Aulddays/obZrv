@@ -53,7 +53,7 @@ public:
 #endif
 
 protected:
-	COLORREF _bgColor{ RGB(200, 200, 200) };
+	COLORREF _bgColor{ RGB(240, 240, 240) };
 
 // Generated message map functions
 protected:
@@ -83,6 +83,7 @@ protected:
 	afx_msg void OnUpdateZoomIn(CCmdUI *pCmdUI);
 	afx_msg void OnUpdateZoomOut(CCmdUI *pCmdUI);
 	int zoom(int inout, bool test = false);
+	int _timecost = 0;
 
 	BasicBitmap *_viewBitmap = NULL;	// bitmap of current view
 	bool _internalBitmap = false;	// is _viewBitmap the internal one from doc? used when showing whole image without zoom

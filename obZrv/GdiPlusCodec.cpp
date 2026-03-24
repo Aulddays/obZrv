@@ -237,9 +237,11 @@ public:
 		BasicBitmap* outBitmap = new BasicBitmap(cropRect.right - cropRect.left, cropRect.bottom - cropRect.top, _fbitmap->Format());
 		outBitmap->Fill(0, 0, cropRect.right - cropRect.left, cropRect.bottom - cropRect.top,
 			_pixel_asm_8888(255, GetRValue(bg), GetGValue(bg), GetBValue(bg)));
-		outBitmap->ScaleCrop(0, 0, _fbitmap, scaleSize.cx, scaleSize.cy,
-			cropRect.left, cropRect.top, cropRect.right - cropRect.left, cropRect.bottom - cropRect.top,
-			PIXEL_FLAG_LANCZOS3);
+		outBitmap->ScaleCropAda(0, 0, _fbitmap, scaleSize.cx, scaleSize.cy,
+			cropRect.left, cropRect.top, cropRect.right - cropRect.left, cropRect.bottom - cropRect.top);
+		//outBitmap->ScaleCrop(0, 0, _fbitmap, scaleSize.cx, scaleSize.cy,
+		//	cropRect.left, cropRect.top, cropRect.right - cropRect.left, cropRect.bottom - cropRect.top,
+		//	PIXEL_FLAG_BILINEAR, 0xffffffff, 0);
 		return outBitmap;
 	}
 
