@@ -44,10 +44,14 @@ public:
 	BasicBitmap *getBBitmap(SIZE &size);
 	Image *getImage() { return _image; }
 
+	static COLORREF getBgColor() { return RGB((_bgColor >> 16) & 0xff, (_bgColor >> 8) & 0xff, _bgColor & 0xff); }
+	static COLORREF setBgColor(COLORREF color) { return _bgColor = (GetRValue(color) << 16) | (GetGValue(color) << 8) | GetBValue(color); }
+
 protected:
 	ObZrvView *_view = NULL;
 
 	Image * _image = NULL;
+	static uint32_t _bgColor;
 	
 	// for animated images
 	bool _animated = false;

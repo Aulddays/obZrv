@@ -1159,6 +1159,79 @@ static int PixelDraw_SSE2_SRCOVER_A8R8G8B8(void *bits, int offset, int w, const 
 
 
 //---------------------------------------------------------------------
+// BlendColor SSE2: blend each pixel with a solid background color
+// result = (src - bg) * src_alpha / 255 + bg, alpha set to 0xff
+//---------------------------------------------------------------------
+static void BlendColorRow_SSE2(IUINT32 *pixels, int w, IUINT32 bg_rb, IUINT32 bg_ag)
+{
+	// broadcast bg channels into 128-bit registers: 00RR00BB and 00GG00xx
+	// bg_rb is 00RR00BB, bg_ag is 00AA00GG (we only care about G)
+	__m128i v_bg_rb = _mm_set1_epi32(bg_rb);          // 00 rr 00 bb per 32-bit lane
+	__m128i v_bg_ag = _mm_set1_epi32(bg_ag);          // 00 aa 00 gg per 32-bit lane
+	__m128i v_alpha_mask = _mm_set1_epi32(0xff000000); // opaque alpha
+
+	// process 4 pixels at a time
+	for (; w >= 4; pixels += 4, w -= 4) {
+		__m128i src = _mm_loadu_si128((const __m128i*)pixels);
+
+		// extract alpha: 00 aa 00 aa per lane
+		__m128i alpha = _mm_expand_alpha(src);
+
+		// inverse alpha: 00 ia 00 ia per lane
+		__m128i inv_alpha = _mm_subs_epu8(_pixel_mask_8x00ff, alpha);
+
+		// src channels
+		__m128i src_rb = _mm_pixel_rb(src);   // 00 rr 00 bb
+		__m128i src_ag = _mm_pixel_ag(src);   // 00 aa 00 gg
+
+		// result = src * sa + bg * (255 - sa), then /255
+		__m128i res_rb = _mm_adds_epu16(
+			_mm_mullo_epi16(src_rb, alpha),
+			_mm_mullo_epi16(v_bg_rb, inv_alpha));
+		__m128i res_ag = _mm_adds_epu16(
+			_mm_mullo_epi16(src_ag, alpha),
+			_mm_mullo_epi16(v_bg_ag, inv_alpha));
+
+		res_rb = _mm_fast_div_255_epu16(res_rb);
+		res_ag = _mm_fast_div_255_epu16(res_ag);
+
+		// pack back: result = (res_ag << 8) | res_rb, then force alpha = 0xff
+		__m128i result = _mm_or_si128(_mm_slli_epi32(res_ag, 8), res_rb);
+		result = _mm_or_si128(result, v_alpha_mask);
+
+		_mm_storeu_si128((__m128i*)pixels, result);
+	}
+
+	// scalar tail
+	if (w > 0) {
+		IUINT32 bg_r = (bg_rb >> 16) & 0xff;
+		IUINT32 bg_g = bg_ag & 0xff;
+		IUINT32 bg_b = bg_rb & 0xff;
+		for (; w > 0; pixels++, w--) {
+			IUINT32 c = pixels[0];
+			IUINT32 sa = c >> 24;
+			if (sa == 0) {
+				pixels[0] = 0xff000000 | (bg_r << 16) | (bg_g << 8) | bg_b;
+			}
+			else if (sa < 255) {
+				IUINT32 inv_sa = 255 - sa;
+				IUINT32 sr = (c >> 16) & 0xff;
+				IUINT32 sg = (c >> 8) & 0xff;
+				IUINT32 sb = c & 0xff;
+				IUINT32 dr = _pixel_fast_div_255(sr * sa + bg_r * inv_sa);
+				IUINT32 dg = _pixel_fast_div_255(sg * sa + bg_g * inv_sa);
+				IUINT32 db = _pixel_fast_div_255(sb * sa + bg_b * inv_sa);
+				pixels[0] = 0xff000000 | (dr << 16) | (dg << 8) | db;
+			}
+			else {
+				pixels[0] = c | 0xff000000;
+			}
+		}
+	}
+}
+
+
+//---------------------------------------------------------------------
 // interpolation routines
 //---------------------------------------------------------------------
 
@@ -2110,6 +2183,8 @@ int BasicBitmap_SSE2_AVX_Enable()
 
 		BasicBitmap::SetDriver(BasicBitmap::A8R8G8B8, PixelDraw_SSE2_SRCOVER_A8R8G8B8, 1);
 		BasicBitmap::SetDriver(BasicBitmap::X8R8G8B8, PixelDraw_SSE2_SRCOVER_A8R8G8B8, 1);
+
+		BasicBitmap::SetDriver((BasicBitmap::BlendColorRow)BlendColorRow_SSE2);
 
 		BasicBitmap::SetDriver(InterpRow_SSE);
 

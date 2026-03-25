@@ -34,9 +34,6 @@ class GdiPlusImage : public Image
 {
 	friend GdiPlusCodec;
 protected:
-	//uint8_t *fileBuf = NULL;
-	//size_t fileLen = 0;
-
 	// image properties
 	GUID _imgfmt;
 	SIZE _dimension{};
@@ -50,44 +47,15 @@ protected:
 
 	// gdiplus bitmap object. only used for animated images, otherwise _fbitmap is sufficient
 	Gdiplus::Bitmap *_gbitmap = NULL;
-	// buffer for _gbitmap
-	IStream *_gstream = NULL;
 
-	// (resized) output bitmap of current frame
-	Gdiplus::Color _bgcolor{ 240, 240, 240 };
+	uint32_t _bgcolor = 0;
 
-	int open(const wchar_t *filename)
+	int open(const wchar_t *filename, uint32_t bgcolor)
 	{
-		// read file into buffer
-		int res = IM_OK;
-		if ((res = readFile(filename)) != IM_OK)
-			return res;
-
-		// make a stream out of the buffer for gdi
-		// https://docs.microsoft.com/en-us/windows/win32/api/shlwapi/nf-shlwapi-shcreatememstream
-		// Prior to Windows Vista, SHCreateMemStream() must be called directly from Shlwapi.dll as ordinal 12
-		static IStream *(WINAPI *pfSHCreateMemStream)(const BYTE *pInit, UINT cbInit) = NULL;
-		if (!pfSHCreateMemStream)
-		{
-			static HINSTANCE hShlwapi = NULL;
-			if (!hShlwapi)
-			{
-				hShlwapi = LoadLibraryA("Shlwapi.dll");
-				if (!hShlwapi)
-					return IM_NOT_SUPPORTED;
-			}
-			else
-				return IM_NOT_SUPPORTED;
-			pfSHCreateMemStream = (IStream *(WINAPI *)(const BYTE *pInit, UINT cbInit))GetProcAddress(hShlwapi, (LPCSTR)12);
-			if (!pfSHCreateMemStream)
-				return IM_NOT_SUPPORTED;
-		}
-		_gstream = pfSHCreateMemStream(_filebuf, _filesize);
-		if (!_gstream)
-			return IM_FAIL;
+		_bgcolor = bgcolor;
 
 		// load the image using gdi
-		_gbitmap = new Gdiplus::Bitmap(_gstream);
+		_gbitmap = new Gdiplus::Bitmap(filename);
 		if (_gbitmap->GetLastStatus() != Gdiplus::Ok)
 			return IM_FAIL;
 
@@ -145,16 +113,12 @@ protected:
 		_fbitmap = gdiplusConvert(_gbitmap);
 		if (!_fbitmap)
 			return IM_FAIL;
+		_fbitmap->BlendColor(_bgcolor);
 
 		if (_framecnt <= 1)	// if not animated, need not keep gdiplus stuffs
 		{
 			delete _gbitmap;
 			_gbitmap = NULL;
-			if (_gstream)
-			{
-				_gstream->Release();
-				_gstream = NULL;
-			}
 			delete []_filebuf;
 			_filebuf = NULL;
 		}
@@ -170,8 +134,6 @@ public:
 		//delete _bitmap;
 		delete _fbitmap;
 		delete _gbitmap;
-		if (_gstream)
-			_gstream->Release();
 	}
 
 	virtual SIZE getDimension() const
@@ -203,6 +165,7 @@ public:
 		_fbitmap = gdiplusConvert(_gbitmap);
 		if (!_fbitmap)
 			return IM_FAIL;
+		_fbitmap->BlendColor(_bgcolor);
 
 		return IM_OK;
 	}
@@ -231,12 +194,12 @@ public:
 		return outBitmap;
 	}
 
-	virtual BasicBitmap* getBBitmap(SIZE scaleSize, RECT cropRect, COLORREF bg)
+	virtual BasicBitmap* getBBitmap(SIZE scaleSize, RECT cropRect)
 	{
 		// scale and crop
 		BasicBitmap* outBitmap = new BasicBitmap(cropRect.right - cropRect.left, cropRect.bottom - cropRect.top, _fbitmap->Format());
-		outBitmap->Fill(0, 0, cropRect.right - cropRect.left, cropRect.bottom - cropRect.top,
-			_pixel_asm_8888(255, GetRValue(bg), GetGValue(bg), GetBValue(bg)));
+		//outBitmap->Fill(0, 0, cropRect.right - cropRect.left, cropRect.bottom - cropRect.top,
+		//	_pixel_asm_8888(255, GetRValue(bg), GetGValue(bg), GetBValue(bg)));
 		outBitmap->ScaleCropAda(0, 0, _fbitmap, scaleSize.cx, scaleSize.cy,
 			cropRect.left, cropRect.top, cropRect.right - cropRect.left, cropRect.bottom - cropRect.top);
 		//outBitmap->ScaleCrop(0, 0, _fbitmap, scaleSize.cx, scaleSize.cy,
@@ -275,11 +238,11 @@ GdiPlusCodec::~GdiPlusCodec()
 {
 }
 
-int GdiPlusCodec::open(const wchar_t *filename, Image ** image)
+int GdiPlusCodec::open(const wchar_t *filename, Image ** image, uint32_t bgcolor)
 {
 	*image = NULL;
 	std::unique_ptr<GdiPlusImage> pimg = std::make_unique<GdiPlusImage>();
-	int res = pimg->open(filename);
+	int res = pimg->open(filename, bgcolor);
 	if (res != IM_OK)
 		return res;
 	*image = pimg.release();
@@ -290,45 +253,73 @@ void *internal_memcpy(void *dst, const void *src, size_t size);
 
 static BasicBitmap *gdiplusConvert(Gdiplus::Bitmap *gbitmap, BasicBitmap::PixelFmt outfmt)
 {
-	// determine src format
-	Gdiplus::PixelFormat gpixfmt = gbitmap->GetPixelFormat();
+	// determine src & dst format
+	if (outfmt == BasicBitmap::UNKNOW)
+	{
+		Gdiplus::PixelFormat orifmt = gbitmap->GetPixelFormat();
+		switch (orifmt)
+		{
+		case PixelFormat32bppARGB:
+			outfmt = BasicBitmap::A8R8G8B8;
+			break;
+		case PixelFormat24bppRGB:
+			outfmt = BasicBitmap::R8G8B8;
+			break;
+		case PixelFormat16bppRGB565:
+			outfmt = BasicBitmap::R5G6B5;
+			break;
+		case PixelFormat16bppARGB1555:
+			outfmt = BasicBitmap::A1R5G5B5;
+			break;
+		case PixelFormat16bppRGB555:
+			outfmt = BasicBitmap::X1R5G5B5;
+			break;
+		case PixelFormat32bppPARGB:
+		case PixelFormat64bppARGB:
+		case PixelFormat64bppPARGB:
+			outfmt = BasicBitmap::A8R8G8B8;
+			break;
+		default:
+			outfmt = BasicBitmap::R8G8B8;
+			break;
+		}
+	}
+
+	Gdiplus::PixelFormat getfmt = PixelFormat24bppRGB;
 	int fmt = 0;
 	int nbytes = 0;
-	switch (gpixfmt)
+	switch (outfmt)
 	{
-	case PixelFormat8bppIndexed:
-		fmt = 8;
-		nbytes = 1;
-		break;
-	case PixelFormat16bppRGB555:
-		fmt = 555;
-		nbytes = 2;
-		break;
-	case PixelFormat16bppRGB565:
-		fmt = 565;
-		nbytes = 2;
-		break;
-	case PixelFormat16bppARGB1555:
-		fmt = 1555;
-		nbytes = 2;
-		break;
-	case PixelFormat24bppRGB:
-		fmt = 888;
-		nbytes = 3;
-		break;
-	case PixelFormat32bppRGB:
-		fmt = 888;
-		nbytes = 4;
-		break;
-	case PixelFormat32bppARGB:
-	case PixelFormat64bppARGB:
-	case PixelFormat64bppPARGB:
-	case PixelFormat32bppPARGB:
-	default:
-		gpixfmt = PixelFormat32bppARGB;
+	case BasicBitmap::A8R8G8B8:
+		getfmt = PixelFormat32bppARGB;
 		fmt = 8888;
 		nbytes = 4;
 		break;
+	case BasicBitmap::R8G8B8:
+		getfmt = PixelFormat24bppRGB;
+		fmt = 888;
+		nbytes = 3;
+		break;
+	case BasicBitmap::R5G6B5:
+		getfmt = PixelFormat16bppRGB565;
+		fmt = 565;
+		nbytes = 2;
+		break;
+	case BasicBitmap::A1R5G5B5:
+		getfmt = PixelFormat16bppARGB1555;
+		fmt = 1555;
+		nbytes = 2;
+		break;
+	case BasicBitmap::X1R5G5B5:
+		getfmt = PixelFormat16bppRGB555;
+		fmt = 555;
+		nbytes = 2;
+		break;
+	case BasicBitmap::A8B8G8R8:
+	case BasicBitmap::X8R8G8B8:
+	case BasicBitmap::A4R4G4B4:
+	default:	// not supported by GdiPlus
+		return NULL;
 	}
 
 	// determine parameters
@@ -336,65 +327,43 @@ static BasicBitmap *gdiplusConvert(Gdiplus::Bitmap *gbitmap, BasicBitmap::PixelF
 	UINT width = gbitmap->GetWidth();
 	UINT height = gbitmap->GetHeight();
 	long stride = (nbytes * width + 3) & ~3;
-	void *bits = (char*)malloc(stride * height);
-	if (!bits)
+
+	std::unique_ptr<BasicBitmap> bmp(new BasicBitmap((int)width, (int)height, outfmt));
+	if (!bmp)
 		return NULL;
 
 	// get bits
-	Gdiplus::Rect rect(0, 0, (int)width, (int)height);
-	Gdiplus::BitmapData bmData;
-	bmData.Scan0 = NULL;
-	if (gbitmap->LockBits(&rect, Gdiplus::ImageLockModeRead, gpixfmt, &bmData) != Gdiplus::Ok || bmData.PixelFormat != gpixfmt)
+	int linestep = std::max(1, (int)((1024 * 1024 * 10) / stride));	// approx. 10MB per block to limit intermediate mem usage
+	//linestep = height;
+	Gdiplus::BitmapData bmData = { 0 };
+	for (int i = 0; i < (int)height; i += linestep)
 	{
-		if (bmData.Scan0)
-			gbitmap->UnlockBits(&bmData);
-		free(bits);
-		return NULL;
-	}
-	for (int i = 0; i < (int)height; i++) {
-		char *src = (char*)bmData.Scan0 + bmData.Stride * i;
-		char *dst = (char*)bits + stride * i;
-		internal_memcpy(dst, src, stride);
-	}
-	gbitmap->UnlockBits(&bmData);
-
-	// construct BasicBitmap obj
-	switch (fmt) {
-	case 8: fmt = BasicBitmap::G8; break;
-	case 555: fmt = BasicBitmap::X1R5G5B5; break;
-	case 565: fmt = BasicBitmap::R5G6B5; break;
-	case 888: fmt = gpixfmt == PixelFormat32bppRGB ? BasicBitmap::X8R8G8B8 : BasicBitmap::R8G8B8; break;
-	case 8888: fmt = BasicBitmap::A8R8G8B8; break;
-	default:
-		fmt = BasicBitmap::UNKNOW;
-		break;
-	}
-	if (fmt == BasicBitmap::UNKNOW) {
-		free(bits);
-		return NULL;
+		int blockh = std::min<>(linestep, (int)height - i);
+		Gdiplus::Rect rect(0, i, (int)width, blockh);
+		bmData.Height = blockh;
+		bmData.Scan0 = NULL;
+		if (gbitmap->LockBits(&rect, Gdiplus::ImageLockModeRead, getfmt, &bmData) != Gdiplus::Ok || bmData.PixelFormat != getfmt)
+		{
+			if (bmData.Scan0)
+				gbitmap->UnlockBits(&bmData);
+			return NULL;
+		}
+		for (int j = 0; j < blockh; j++)
+		{
+			void* dst = bmp->Line(i + j);
+			char* src = (char*)bmData.Scan0 + bmData.Stride * j;
+			internal_memcpy(dst, src, stride);
+		}
+		gbitmap->UnlockBits(&bmData);
 	}
 
-	BasicBitmap *bmp = new BasicBitmap((int)width, (int)height, (BasicBitmap::PixelFmt)fmt);
-	if (bmp == NULL) {
-		free(bits);
-		return NULL;
-	}
-
-	for (int j = 0; j < bmp->Height(); j++) {
-		void *dst = bmp->Line(j);
-		void *src = (char *)bits + stride * j;
-		internal_memcpy(dst, src, (bmp->Bpp() + 1) / 8 * width);
-	}
-
-	free(bits);
-
-	// convert to outfmt if necessary
-	if (outfmt == BasicBitmap::UNKNOW || outfmt == bmp->Format())
-		return bmp;
-	BasicBitmap *cvt = new BasicBitmap(bmp->Width(), bmp->Height(), outfmt);
-	if (cvt) {
-		cvt->Convert(0, 0, bmp, 0, 0, bmp->Width(), bmp->Height());
-	}
-	delete bmp;
-	return cvt;
+	//// convert to outfmt if necessary
+	//if (outfmt == BasicBitmap::UNKNOW || outfmt == bmp->Format())
+	//	return bmp.release();
+	//BasicBitmap *cvt = new BasicBitmap(bmp->Width(), bmp->Height(), outfmt);
+	//if (cvt) {
+	//	cvt->Convert(0, 0, bmp.get(), 0, 0, bmp->Width(), bmp->Height());
+	//}
+	//return cvt;
+	return bmp.release();
 }

@@ -46,6 +46,8 @@ protected:
 	// bitmap object of current frame
 	BasicBitmap *_fbitmap = NULL;
 
+	uint32_t _bgcolor = 0;
+
 	// animation properties
 	int _framecnt = 0;
 	int _frametm = 0;
@@ -55,8 +57,9 @@ protected:
 	WebPAnimDecoder* _animdec = NULL;
 
 protected:
-	int open(const wchar_t *filename)
+	int open(const wchar_t *filename, uint32_t bgcolor)
 	{
+		_bgcolor = bgcolor;
 		int res = readFile(filename);
 		if (res != IM_OK)
 			return res;
@@ -76,6 +79,7 @@ protected:
 				!imgfea.has_alpha &&
 				!WebPDecodeBGRInto(_filebuf, _filesize, bmp->Bits(), bmp->Pitch() * bmp->Height(), bmp->Pitch()))
 				return IM_FAIL;
+			bmp->BlendColor(_bgcolor);
 
 			_fbitmap = bmp.release();
 			_dimension = SIZE{ imgfea.width, imgfea.height };
@@ -137,15 +141,17 @@ public:
 		return outBitmap;
 	}
 
-	virtual BasicBitmap* getBBitmap(SIZE scaleSize, RECT cropRect, COLORREF bg)
+	virtual BasicBitmap* getBBitmap(SIZE scaleSize, RECT cropRect)
 	{
 		// scale and crop
 		BasicBitmap* outBitmap = new BasicBitmap(cropRect.right - cropRect.left, cropRect.bottom - cropRect.top, _fbitmap->Format());
-		outBitmap->Fill(0, 0, cropRect.right - cropRect.left, cropRect.bottom - cropRect.top,
-			_pixel_asm_8888(255, GetRValue(bg), GetGValue(bg), GetBValue(bg)));
-		outBitmap->ScaleCrop(0, 0, _fbitmap, scaleSize.cx, scaleSize.cy,
-			cropRect.left, cropRect.top, cropRect.right - cropRect.left, cropRect.bottom - cropRect.top,
-			PIXEL_FLAG_LANCZOS3);
+		//outBitmap->Fill(0, 0, cropRect.right - cropRect.left, cropRect.bottom - cropRect.top,
+		//	_pixel_asm_8888(255, GetRValue(bg), GetGValue(bg), GetBValue(bg)));
+		//outBitmap->ScaleCrop(0, 0, _fbitmap, scaleSize.cx, scaleSize.cy,
+		//	cropRect.left, cropRect.top, cropRect.right - cropRect.left, cropRect.bottom - cropRect.top,
+		//	PIXEL_FLAG_LANCZOS3);
+		outBitmap->ScaleCropAda(0, 0, _fbitmap, scaleSize.cx, scaleSize.cy,
+			cropRect.left, cropRect.top, cropRect.right - cropRect.left, cropRect.bottom - cropRect.top);
 		return outBitmap;
 	}
 
@@ -197,6 +203,7 @@ public:
 			void *src = decbits + linelen * i;
 			internal_memcpy(dst, src, linelen);
 		}
+		_fbitmap->BlendColor(_bgcolor);
 		return IM_OK;
 	}
 	virtual const wchar_t *getFormat() const
@@ -214,11 +221,11 @@ WebpCodec::~WebpCodec()
 {
 }
 
-int WebpCodec::open(const wchar_t *filename, Image ** image)
+int WebpCodec::open(const wchar_t *filename, Image ** image, uint32_t bgcolor)
 {
 	*image = NULL;
 	std::unique_ptr<WebpImage> pimg = std::make_unique<WebpImage>();
-	int res = pimg->open(filename);
+	int res = pimg->open(filename, bgcolor);
 	if (res != IM_OK)
 		return res;
 	*image = pimg.release();

@@ -29,6 +29,6 @@ public:
 
 	//virtual int init();
 	//virtual int release();
-	virtual int open(const wchar_t *filename, Image ** image);
+	virtual int open(const wchar_t *filename, Image ** image, uint32_t bgcolor);
 };
 

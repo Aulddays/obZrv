@@ -52,9 +52,6 @@ public:
 	virtual void Dump(CDumpContext& dc) const;
 #endif
 
-protected:
-	COLORREF _bgColor{ RGB(240, 240, 240) };
-
 // Generated message map functions
 protected:
 	afx_msg void OnFilePrintPreview();

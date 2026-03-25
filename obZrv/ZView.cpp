@@ -194,7 +194,7 @@ void ObZrvView::OnDraw(CDC* pDc)
 		{
 			DWORD tmstart = GetTickCount();
 			//_viewBitmap = image->getBBitmap(_viewRect, _viewDim);
-			_viewBitmap = image->getBBitmap(_scaleSize, _viewCrop, _bgColor);
+			_viewBitmap = image->getBBitmap(_scaleSize, _viewCrop);
 			_timecost = GetTickCount() - tmstart;
 		}
 		updateStatus();
@@ -219,13 +219,13 @@ void ObZrvView::OnDraw(CDC* pDc)
 	assert(_viewBitmap->Width() >= _viewCrop.Width() && _viewBitmap->Height() >= _viewCrop.Height());
 	_viewBitmap->SetDIBitsToDevice(pDc->GetSafeHdc(), rect.left, rect.top, 0, 0, _viewCrop.Width(), _viewCrop.Height());
 	if (rect.left > 0)
-		pDc->FillSolidRect(0, 0, rect.left, crect.bottom, _bgColor);
+		pDc->FillSolidRect(0, 0, rect.left, crect.bottom, pDoc->getBgColor());
 	if (rect.right != crect.right)
-		pDc->FillSolidRect(rect.right, 0, crect.right - rect.right, crect.bottom, _bgColor);
+		pDc->FillSolidRect(rect.right, 0, crect.right - rect.right, crect.bottom, pDoc->getBgColor());
 	if (rect.top != 0)
-		pDc->FillSolidRect(rect.left, 0, rect.Width(), rect.top, _bgColor);
+		pDc->FillSolidRect(rect.left, 0, rect.Width(), rect.top, pDoc->getBgColor());
 	if (rect.bottom != crect.bottom)
-		pDc->FillSolidRect(rect.left, rect.bottom, rect.Width(), crect.bottom - rect.bottom, _bgColor);
+		pDc->FillSolidRect(rect.left, rect.bottom, rect.Width(), crect.bottom - rect.bottom, pDoc->getBgColor());
 	return;
 }
 
@@ -233,7 +233,7 @@ void ObZrvView::fillBg(CDC *pDC)
 {
 	CRect rect;
 	GetClientRect(rect);
-	pDC->FillSolidRect(&rect, _bgColor);
+	pDC->FillSolidRect(&rect, GetDocument()->getBgColor());
 }
 
 void ObZrvView::OnInitialUpdate()
@@ -458,7 +458,7 @@ void ObZrvView::onFrameUpdate()
 	releaseBitmap();
 	Image *image = GetDocument()->getImage();
 	if (image)
-		_viewBitmap = image->getBBitmap(_scaleSize, _viewCrop, _bgColor);
+		_viewBitmap = image->getBBitmap(_scaleSize, _viewCrop);
 	Invalidate(FALSE);
 }
 

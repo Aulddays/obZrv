@@ -62,6 +62,8 @@ const static wchar_t DIRSEP = L'\\';
 GdiPlusCodec gdiplusCodec;
 WebpCodec webpCodec;
 
+uint32_t ObZrvDoc::_bgColor{ RGB(240, 240, 240) };
+
 int ObZrvDoc::initCodec()
 {
 	if (gdiplusCodec.init() != 0)
@@ -215,7 +217,7 @@ BOOL ObZrvDoc::OnOpenDocument(LPCTSTR lpszPathName)
 	if (_wcsicmp(pos, L"webp") == 0)
 		codec = &webpCodec;
 
-	int res = codec->open(lpszPathName, &_image);
+	int res = codec->open(lpszPathName, &_image, _bgColor);
 
 	SetModifiedFlag(FALSE);     // start off with unmodified
 

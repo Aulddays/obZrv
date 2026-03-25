@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <stdint.h>
 #include "BasicBitmap\BasicBitmap.h"
 
 enum IM_ErrorCodes
@@ -46,7 +47,7 @@ public:
 	virtual BasicBitmap *getBBitmap(RECT srcRect, SIZE outSize) = 0;
 	// Get transformed bitmap of current frame: scale to scaleSize and then crop cropRect on scaled image.
 	// Result size shall be equal to or larger than cropRect, and the valid result area is on (0, 0, cropRect.w, cropRect.h)
-	virtual BasicBitmap* getBBitmap(SIZE scaleSize, RECT cropRect, COLORREF bg) = 0;
+	virtual BasicBitmap* getBBitmap(SIZE scaleSize, RECT cropRect) = 0;
 
 	// animation properties
 	virtual int getLoopNum() const = 0;
@@ -80,7 +81,6 @@ protected:
 	}
 
 
-
 };
 
 class Codec
@@ -92,7 +92,7 @@ public:
 public:
 	virtual int init() { return 0; };
 	//virtual int release() = 0;
-	virtual int open(const wchar_t *filename, Image ** image) = 0;
+	virtual int open(const wchar_t *filename, Image ** image, uint32_t bgcolor) = 0;
 
 protected:
 

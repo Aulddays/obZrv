@@ -747,6 +747,11 @@ public:
 	// premultiply with alpha
 	void Premultiply(bool reverse = false);
 
+	// Alpha blend with a solid background color (RGB, alpha ignored).
+	// For each pixel: result = src * src.a / 255 + bg * (255 - src.a) / 255,
+	// then set alpha to 255 (opaque). Does nothing if this bitmap has no alpha.
+	void BlendColor(IUINT32 color);
+
 	// DrawLine
 	void DrawLine(int x1, int y1, int x2, int y2, IUINT32 color);
 
@@ -873,6 +878,14 @@ public:
 
 	// box prefilter block downsample callback
 	static void SetDriver(BoxDownsampleBlock fn);
+
+	// BlendColor row callback: blend a row of ARGB pixels with a solid bg color
+	// pixels: in/out IUINT32 array (A8R8G8B8), w: pixel count, bg_rb/bg_ag:
+	// pre-split background color in 00RR00BB / 00AA00GG form
+	typedef void (*BlendColorRow)(IUINT32 *pixels, int w, IUINT32 bg_rb, IUINT32 bg_ag);
+
+	// set BlendColor row callback
+	static void SetDriver(BlendColorRow fn);
 
 public:
 
@@ -1025,6 +1038,7 @@ protected:
 	static BoxAccumRow BoxAccumRowPtr;
 	static BoxOutputRow BoxOutputRowPtr;
 	static BoxDownsampleBlock BoxDownsampleBlockPtr;
+	static BlendColorRow BlendColorRowPtr;
 
 
 protected:

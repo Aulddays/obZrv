@@ -3201,6 +3201,104 @@ void BasicBitmap::Premultiply(bool reverse)
 
 
 //---------------------------------------------------------------------
+// BlendColor - alpha blend each pixel with a solid background color
+//---------------------------------------------------------------------
+static void BlendColorRow_Default(IUINT32 *pixels, int w, IUINT32 bg_rb, IUINT32 bg_ag)
+{
+	IUINT32 bg_r = (bg_rb >> 16) & 0xff;
+	IUINT32 bg_g = bg_ag & 0xff;
+	IUINT32 bg_b = bg_rb & 0xff;
+	for (int i = w; i > 0; pixels++, i--) {
+		IUINT32 c = pixels[0];
+		IUINT32 sa = c >> 24;
+		if (sa == 0) {
+			pixels[0] = 0xff000000 | (bg_r << 16) | (bg_g << 8) | bg_b;
+		}
+		else if (sa < 255) {
+			IUINT32 inv_sa = 255 - sa;
+			IUINT32 sr = (c >> 16) & 0xff;
+			IUINT32 sg = (c >> 8) & 0xff;
+			IUINT32 sb = c & 0xff;
+			IUINT32 dr = _pixel_fast_div_255(sr * sa + bg_r * inv_sa);
+			IUINT32 dg = _pixel_fast_div_255(sg * sa + bg_g * inv_sa);
+			IUINT32 db = _pixel_fast_div_255(sb * sa + bg_b * inv_sa);
+			pixels[0] = 0xff000000 | (dr << 16) | (dg << 8) | db;
+		}
+		else {
+			pixels[0] = c | 0xff000000;
+		}
+	}
+}
+
+void BasicBitmap::BlendColor(IUINT32 color)
+{
+	// only process formats with alpha channel
+	if (_fmt != A8R8G8B8 && _fmt != A8B8G8R8 &&
+		_fmt != A1R5G5B5 && _fmt != A4R4G4B4) {
+		return;
+	}
+
+	// pre-split background color into 00RR00BB and 00AA00GG (alpha unused for bg)
+	IUINT32 bg_rb = color & 0x00ff00ff;
+	IUINT32 bg_ag = (color >> 8) & 0x00ff00ff;
+
+	BlendColorRow row_fn = BlendColorRowPtr ? BlendColorRowPtr : BlendColorRow_Default;
+
+	if (_fmt == A8R8G8B8) {
+		for (int j = 0; j < _h; j++) {
+			row_fn((IUINT32*)Line(j), _w, bg_rb, bg_ag);
+		}
+	}
+	else if (_fmt == A8B8G8R8) {
+		// A8B8G8R8: memory layout is ABGR, swap R/B in background
+		IUINT32 bg_rb_swap = ((color >> 16) & 0xff) | ((color & 0xff) << 16);
+		IUINT32 bg_rb2 = bg_rb_swap & 0x00ff00ff;
+		IUINT32 bg_ag2 = (color >> 8) & 0x00ff00ff; // alpha and green stay the same
+		for (int j = 0; j < _h; j++) {
+			row_fn((IUINT32*)Line(j), _w, bg_rb2, bg_ag2);
+		}
+	}
+	else if (_fmt == A1R5G5B5) {
+		IUINT32 bg_r = (color >> 16) & 0xff;
+		IUINT32 bg_g = (color >> 8) & 0xff;
+		IUINT32 bg_b = color & 0xff;
+		IUINT16 opaque_bg = _pixel_asm_1555(0xff, bg_r, bg_g, bg_b);
+		for (int j = 0; j < _h; j++) {
+			IUINT16 *ptr = (IUINT16*)Line(j);
+			for (int i = _w; i > 0; ptr++, i--) {
+				if ((ptr[0] & 0x8000) == 0) {
+					ptr[0] = opaque_bg; // transparent pixel -> bg
+				}
+				// alpha=1 pixels remain unchanged (already opaque)
+			}
+		}
+	}
+	else if (_fmt == A4R4G4B4) {
+		IUINT32 bg_r = (color >> 16) & 0xff;
+		IUINT32 bg_g = (color >> 8) & 0xff;
+		IUINT32 bg_b = color & 0xff;
+		for (int j = 0; j < _h; j++) {
+			IUINT16 *ptr = (IUINT16*)Line(j);
+			for (int i = _w; i > 0; ptr++, i--) {
+				IUINT32 r, g, b, a;
+				_pixel_disasm_4444(ptr[0], a, r, g, b);
+				if (a == 0) {
+					r = bg_r; g = bg_g; b = bg_b;
+				}
+				else if (a < 255) {
+					IUINT32 inv_a = 255 - a;
+					r = _pixel_fast_div_255(r * a + bg_r * inv_a);
+					g = _pixel_fast_div_255(g * a + bg_g * inv_a);
+					b = _pixel_fast_div_255(b * a + bg_b * inv_a);
+				}
+				ptr[0] = _pixel_asm_4444(0xff, r, g, b);
+			}
+		}
+	}
+}
+
+
+//---------------------------------------------------------------------
 // interpolate
 //---------------------------------------------------------------------
 BasicBitmap::InterpRow BasicBitmap::InterpolateRowPtr = NULL;
@@ -3210,6 +3308,7 @@ BasicBitmap::BlendVert6Tap BasicBitmap::BlendVert6TapPtr = NULL;
 BasicBitmap::BoxAccumRow BasicBitmap::BoxAccumRowPtr = NULL;
 BasicBitmap::BoxOutputRow BasicBitmap::BoxOutputRowPtr = NULL;
 BasicBitmap::BoxDownsampleBlock BasicBitmap::BoxDownsampleBlockPtr = NULL;
+BasicBitmap::BlendColorRow BasicBitmap::BlendColorRowPtr = NULL;
 
 void BasicBitmap::SetDriver(InterpRow fn)
 {
@@ -3244,6 +3343,11 @@ void BasicBitmap::SetDriver(BoxOutputRow fn)
 void BasicBitmap::SetDriver(BoxDownsampleBlock fn)
 {
 	BoxDownsampleBlockPtr = fn;
+}
+
+void BasicBitmap::SetDriver(BlendColorRow fn)
+{
+	BlendColorRowPtr = fn;
 }
 
 
@@ -3748,7 +3852,7 @@ void BasicBitmap::ScaleCrop(
 			if (sub_w > 0 && sub_h > 0) {
 				int depth = src->Bpp();
 
-				// O5: allocate only the sub-region, not full inter_w × inter_h
+				// O5: allocate only the sub-region, not full inter_w * inter_h
 				prefiltered.reset(new BasicBitmap(sub_w, sub_h,
 					(depth == 32) ? src->_fmt : A8R8G8B8));
 
@@ -3771,9 +3875,9 @@ void BasicBitmap::ScaleCrop(
 					IUINT32 recip = (total > 0) ? (IUINT32)((1ULL << 22) / total) : 0;
 
 					// O0: streaming fused scan with column accumulators
-					// Allocate column accumulators: sub_w × 4 channels
+					// Allocate column accumulators: sub_w * 4 channels
 					// Use a single aligned buffer: [r0 g0 b0 a0 r1 g1 b1 a1 ...]
-					// interleaved as 4 × IUINT32 per column for SSE2 friendliness
+					// interleaved as 4 * IUINT32 per column for SSE2 friendliness
 					int col_buf_size = sub_w * 4;
 					IUINT32 *col_acc = (IUINT32*)internal_align_malloc(
 						col_buf_size * sizeof(IUINT32), 16);
@@ -4137,9 +4241,9 @@ void BasicBitmap::ScaleCropAda(
 	int crx, int cry, int crw, int crh)	// crop rect on scaled image
 {
 	if (src->_w >= 20 && src->_h >= 20 && src->_w >= scw * 3 && src->_h >= sch * 3)	// extreme downacale, use pre-avg-filter + bicubic
-		ScaleCrop(dx, dy, src, scw, sch, crx, cry, crw, crh, PIXEL_FLAG_BILINEAR, 0xffffffff, 0.6);
+		ScaleCrop(dx, dy, src, scw, sch, crx, cry, crw, crh, PIXEL_FLAG_BILINEAR | PIXEL_FLAG_SRCCOPY, 0xffffffff, 0.6);
 	else
-		ScaleCrop(dx, dy, src, scw, sch, crx, cry, crw, crh, PIXEL_FLAG_LANCZOS3, 0xffffffff, 0);
+		ScaleCrop(dx, dy, src, scw, sch, crx, cry, crw, crh, PIXEL_FLAG_LANCZOS3 | PIXEL_FLAG_SRCCOPY, 0xffffffff, 0);
 }
 
 
