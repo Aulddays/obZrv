@@ -12,9 +12,7 @@
 #define IDS_TOOLBAR_CUSTOMIZE           125
 #define ID_VIEW_CUSTOMIZE               126
 #define IDR_MAINFRAME                   128
-#define IDR_MAINFRAME_256               129
 #define IDR_obZrvTYPE                   130
-#define IDR_THEME_MENU                  200
 #define ID_SET_STYLE                    201
 #define ID_VIEW_APPLOOK_WIN_2000        205
 #define ID_VIEW_APPLOOK_OFF_XP          206
@@ -35,13 +33,20 @@
 #define ID_VIEW_ZOOMOUT32775            32775
 #define ID_FILE_PREV                    32776
 #define ID_FILE_NEXT                    32777
+#define ID_VIEW_ZOOMTO                  32778
+#define ID_VIEW_ZOOMLOCK                32779
+#define ID_VIEW_ZOOMREM                 32780
+#define ID_VIEW_ZOOM                    32781
+#define ID_VIEW_ZOOMLOCK32782           32782
+#define ID_VIEW_REMEMBERZOOLLEVEL       32783
+#define ID_VIEW_ZOOMPLACEHOLDER         32784
 
 // Next default values for new objects
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        311
-#define _APS_NEXT_COMMAND_VALUE         32778
+#define _APS_NEXT_COMMAND_VALUE         32785
 #define _APS_NEXT_CONTROL_VALUE         1000
 #define _APS_NEXT_SYMED_VALUE           310
 #endif

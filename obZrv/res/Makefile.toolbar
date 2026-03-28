@@ -1,0 +1,25 @@
+# Produce toolbar resource files from ToolbarSrc/*.128.png
+
+VARS := 20 25 30 40
+SRCS := open prev next zoomin zoomto zoomout zoomlock zoomrem zoom
+
+.PHONY: all clean
+all: $(foreach v,$(VARS),Toolbar.$(v).png) Toolbar.bmp
+
+# merge into one
+Toolbar.%.png: $(foreach s,$(SRCS),ToolbarSrc/inter/$(s).%.png)
+	convert $^ +append $@
+
+# resize. Makefile does not directly support somethine like `x.y.png: x.128.png`, so use a define and call
+define INTERMEDIATE_RULE
+ToolbarSrc/inter/$(1).$(2).png: ToolbarSrc/$(1).128.png
+	convert -resize $(2)x$(2) ToolbarSrc/$(1).128.png $$@
+endef
+$(foreach v,$(VARS),$(foreach s,$(SRCS),$(eval $(call INTERMEDIATE_RULE,$(s),$(v)))))
+
+# a copy in bmp format, just make the resource editor happy. The png version is actually used
+Toolbar.bmp: Toolbar.20.png
+	convert Toolbar.20.png bmp3:Toolbar.bmp
+
+clean:
+	echo rm -f $(foreach v,$(VARS),Toolbar.$(v).png) $(foreach v,$(VARS),$(foreach s,$(SRCS),ToolbarSrc/inter/$(s).$(v).png))

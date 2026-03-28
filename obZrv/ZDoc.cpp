@@ -62,7 +62,7 @@ const static wchar_t DIRSEP = L'\\';
 GdiPlusCodec gdiplusCodec;
 WebpCodec webpCodec;
 
-uint32_t ObZrvDoc::_bgColor{ RGB(240, 240, 240) };
+uint32_t ObZrvDoc::_bgColor{ RGB(250, 250, 250) };
 
 int ObZrvDoc::initCodec()
 {

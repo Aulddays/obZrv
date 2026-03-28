@@ -72,6 +72,9 @@
     <ClInclude Include="webp\mux_types.h">
       <Filter>webp</Filter>
     </ClInclude>
+    <ClInclude Include="ZVisualManager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="obZrv.cpp">
@@ -107,6 +110,9 @@
     <ClCompile Include="WebpCodec.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="ZVisualManager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="obZrv.rc">
@@ -126,7 +132,7 @@
     <Image Include="res\Toolbar.bmp">
       <Filter>Resource Files</Filter>
     </Image>
-    <Image Include="res\Toolbar256.bmp">
+    <Image Include="res\Toolbar.20.png">
       <Filter>Resource Files</Filter>
     </Image>
   </ItemGroup>
