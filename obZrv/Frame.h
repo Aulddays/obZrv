@@ -69,9 +69,15 @@ protected:
 	afx_msg void OnUpdateApplicationLook(CCmdUI* pCmdUI);
 	afx_msg LRESULT OnDpichanged(WPARAM wParam, LPARAM lParam);
 	afx_msg void OnSettingChange(UINT uFlags, LPCTSTR lpszSection);
+	LRESULT OnGesture(WPARAM wParam, LPARAM lParam)
+	{
+		return 0;
+	}
+	afx_msg LRESULT OnToolbarReset(WPARAM wp, LPARAM);
 	DECLARE_MESSAGE_MAP()
 
 public:
+	afx_msg void OnMouseHWheel(UINT nFlags, short zDelta, CPoint pt);
 };
 
 

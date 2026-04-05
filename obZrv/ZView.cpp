@@ -56,9 +56,14 @@ BEGIN_MESSAGE_MAP(ObZrvView, CView)
 	ON_COMMAND(ID_VIEW_ZOOMOUT, &ObZrvView::OnZoomOut)
 	ON_UPDATE_COMMAND_UI(ID_VIEW_ZOOMIN, &ObZrvView::OnUpdateZoomIn)
 	ON_UPDATE_COMMAND_UI(ID_VIEW_ZOOMOUT, &ObZrvView::OnUpdateZoomOut)
+	ON_UPDATE_COMMAND_UI(ID_VIEW_ZOOMTO, &ObZrvView::OnUpdateZoomTo)
+	ON_UPDATE_COMMAND_UI(ID_VIEW_ZOOMMODE, &ObZrvView::OnUpdateZoomTo)
 	ON_WM_LBUTTONDOWN()
 	ON_WM_LBUTTONUP()
 	ON_WM_MOUSEMOVE()
+	ON_WM_CREATE()
+	ON_MESSAGE(WM_GESTURE, &ObZrvView::OnGesture)
+	ON_WM_VSCROLL()
 END_MESSAGE_MAP()
 
 // ObZrvView construction/destruction
@@ -543,6 +548,10 @@ void ObZrvView::OnUpdateZoomOut(CCmdUI *pCmdUI)
 {
 	pCmdUI->Enable(zoom(-1, true) == 0);
 }
+void ObZrvView::OnUpdateZoomTo(CCmdUI* pCmdUI)
+{
+	pCmdUI->Enable(GetDocument()->getImage() != NULL);
+}
 
 int ObZrvView::zoom(int inout, bool test)
 {
@@ -615,4 +624,30 @@ void ObZrvView::OnMouseMove(UINT nFlags, CPoint point)
 		Invalidate(FALSE);
 	}
 	CView::OnMouseMove(nFlags, point);
+}
+
+
+int ObZrvView::OnCreate(LPCREATESTRUCT lpCreateStruct)
+{
+	if (CView::OnCreate(lpCreateStruct) == -1)
+		return -1;
+
+	//CGestureConfig config;
+	//GetGestureConfig(&config);
+	//config.EnableZoom();
+	//SetGestureConfig(&config);
+
+	return 0;
+}
+
+LRESULT ObZrvView::OnGesture(WPARAM wParam, LPARAM lParam)
+{
+	return 0;
+}
+
+void ObZrvView::OnVScroll(UINT nSBCode, UINT nPos, CScrollBar* pScrollBar)
+{
+	// TODO: Add your message handler code here and/or call default
+
+	CView::OnVScroll(nSBCode, nPos, pScrollBar);
 }

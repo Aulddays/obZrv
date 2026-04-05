@@ -84,7 +84,6 @@ BOOL ObZrvApp::InitInstance()
 
 	CWinAppEx::InitInstance();
 
-
 	EnableTaskbarInteraction(FALSE);
 
 	// AfxInitRichEdit2() is required to use RichEdit control	
@@ -98,8 +97,7 @@ BOOL ObZrvApp::InitInstance()
 	// TODO: You should modify this string to be something appropriate
 	// such as the name of your company or organization
 	SetRegistryKey(_T("Aulddays"));
-	LoadStdProfileSettings(4);  // Load standard INI file options (including MRU)
-
+	LoadStdProfileSettings(10);  // Load standard INI file options (including MRU)
 
 	InitContextMenuManager();
 
@@ -138,6 +136,7 @@ BOOL ObZrvApp::InitInstance()
 	// The one and only window has been initialized, so show and update it
 	m_pMainWnd->ShowWindow(SW_SHOW);
 	m_pMainWnd->UpdateWindow();
+	m_pMainWnd->DragAcceptFiles(); // Enable drag and drop open file
 	return TRUE;
 }
 

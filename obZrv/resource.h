@@ -27,6 +27,9 @@
 #define ID_VIEW_APPLOOK_WINDOWS_7       219
 #define IDS_EDIT_MENU                   306
 #define ID_INDICATOR_IMAGEINFO          310
+#define IDR_MAINFRAME_120               312
+#define IDR_MAINFRAME_144               313
+#define IDR_MAINFRAME_192               314
 #define ID_APPLICATIONLOOK_WINDOWS7     32771
 #define ID_VIEW_ZOOMIN                  32773
 #define ID_VIEW_ZOOMOUT                 32774
@@ -34,19 +37,26 @@
 #define ID_FILE_PREV                    32776
 #define ID_FILE_NEXT                    32777
 #define ID_VIEW_ZOOMTO                  32778
-#define ID_VIEW_ZOOMLOCK                32779
 #define ID_VIEW_ZOOMREM                 32780
 #define ID_VIEW_ZOOM                    32781
-#define ID_VIEW_ZOOMLOCK32782           32782
 #define ID_VIEW_REMEMBERZOOLLEVEL       32783
 #define ID_VIEW_ZOOMPLACEHOLDER         32784
+#define ID_ZOOMMODE_W2I_ZOOMOUT         32788
+#define ID_ZOOMMODE_W2I                 32789
+#define ID_IMAGEFITWINDOW               32790
+#define ID_ZOOMMODE_I2W_ZOOMOUT         32791
+#define ID_ZOOMMODE_I2W                 32792
+#define ID_ZOOMMODE_NOFIT               32793
+#define ID_VIEW_ZOOMMODE                32779
+#define ID_ZOOMMODE_FIT                 32795
+#define ID_ZOOMMODE_NOZOOM              32796
 
 // Next default values for new objects
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        311
-#define _APS_NEXT_COMMAND_VALUE         32785
+#define _APS_NEXT_RESOURCE_VALUE        315
+#define _APS_NEXT_COMMAND_VALUE         32797
 #define _APS_NEXT_CONTROL_VALUE         1000
 #define _APS_NEXT_SYMED_VALUE           310
 #endif

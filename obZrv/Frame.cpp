@@ -44,11 +44,14 @@ const UINT uiLastUserToolBarId = uiFirstUserToolBarId + iMaxUserToolbars - 1;
 BEGIN_MESSAGE_MAP(ObZrvFrm, CFrameWndEx)
 	ON_WM_CREATE()
 	ON_COMMAND(ID_VIEW_CUSTOMIZE, &ObZrvFrm::OnViewCustomize)
-	ON_REGISTERED_MESSAGE(AFX_WM_CREATETOOLBAR, &ObZrvFrm::OnToolbarCreateNew)
 	ON_WM_SETTINGCHANGE()
 	ON_MESSAGE(WM_DPICHANGED, &ObZrvFrm::OnDpichanged)
 	ON_COMMAND(ID_INDICATOR_IMAGEINFO, NULL)	// status bar pane will be grayed out if missing this
+	ON_MESSAGE(WM_GESTURE, &ObZrvFrm::OnGesture)
+	ON_WM_MOUSEHWHEEL()
+	ON_REGISTERED_MESSAGE(AFX_WM_RESETTOOLBAR, OnToolbarReset)
 END_MESSAGE_MAP()
+	//ON_REGISTERED_MESSAGE(AFX_WM_CREATETOOLBAR, &ObZrvFrm::OnToolbarCreateNew)
 
 // ObZrvFrm construction/destruction
 
@@ -80,12 +83,19 @@ int ObZrvFrm::OnCreate(LPCREATESTRUCT lpCreateStruct)
 	// prevent the menu bar from taking the focus on activation
 	CMFCPopupMenu::SetForceMenuFocus(FALSE);
 
+	CMFCToolBar::SetCustomizeMode(FALSE);
+	CMFCToolBar::EnableQuickCustomization(FALSE);
 	if (!m_wndToolBar.CreateEx(this, TBSTYLE_FLAT, WS_CHILD | WS_VISIBLE | CBRS_TOP | CBRS_GRIPPER | CBRS_TOOLTIPS | CBRS_FLYBY | CBRS_SIZE_DYNAMIC) ||
 		!m_wndToolBar.LoadToolBar(IDR_MAINFRAME))
 	{
 		TRACE0("Failed to create toolbar\n");
 		return -1;      // fail to create
 	}
+	// toolbar images for different DPIs
+	m_wndToolBar.addDpiImage(96, IDR_MAINFRAME, { 20, 20 });
+	m_wndToolBar.addDpiImage(120, IDR_MAINFRAME_120, { 25, 25 });
+	m_wndToolBar.addDpiImage(144, IDR_MAINFRAME_144, { 30, 30 });
+	m_wndToolBar.addDpiImage(192, IDR_MAINFRAME_192, { 40, 40 });
 
 	CString strToolBarName;
 	bNameValid = strToolBarName.LoadString(IDS_TOOLBAR_STANDARD);
@@ -95,7 +105,7 @@ int ObZrvFrm::OnCreate(LPCREATESTRUCT lpCreateStruct)
 	CString strCustomize;
 	bNameValid = strCustomize.LoadString(IDS_TOOLBAR_CUSTOMIZE);
 	ASSERT(bNameValid);
-	m_wndToolBar.EnableCustomizeButton(TRUE, ID_VIEW_CUSTOMIZE, strCustomize);
+	m_wndToolBar.EnableCustomizeButton(FALSE, -1, strCustomize);
 
 	// Allow user-defined toolbars operations:
 	InitUserToolbars(NULL, uiFirstUserToolBarId, uiLastUserToolBarId);
@@ -145,8 +155,55 @@ int ObZrvFrm::OnCreate(LPCREATESTRUCT lpCreateStruct)
 	//		CMFCToolBar::SetUserImages(&m_UserImages);
 	//	}
 	//}
+	CGestureConfig config;
+	GetGestureConfig(&config);
+	config.EnableZoom();
+	SetGestureConfig(&config);
+
 
 	updateDpi();
+
+	return 0;
+}
+
+afx_msg LRESULT ObZrvFrm::OnToolbarReset(WPARAM wp, LPARAM)
+{
+	CMenu mainMenu;
+	mainMenu.LoadMenu(IDR_MAINFRAME);
+
+	//// Zoom level
+	//CMFCToolBarButton* oribtn = m_wndToolBar.GetButton(m_wndToolBar.CommandToIndex(ID_VIEW_ZOOMTO));
+	//m_wndToolBar.ReplaceButton(ID_VIEW_ZOOMTO,
+	//	CMFCToolBarMenuButton(ID_VIEW_ZOOMTO, mainMenu, GetCmdMgr()->GetCmdImage(ID_VIEW_ZOOMTO), L"haha", FALSE));
+	//CMFCToolBarMenuButton* newbtn = (CMFCToolBarMenuButton*)m_wndToolBar.GetButton(m_wndToolBar.CommandToIndex(ID_VIEW_ZOOMTO));
+	//newbtn->SetMenuOnly(TRUE);
+
+	// Zoom options
+	// iterate through the menu to find the zoom mode
+	CMenu* zmMenu = NULL;
+	for (int i = 0; i < mainMenu.GetMenuItemCount() && !zmMenu; i++)
+	{
+		CMenu* subMenu = mainMenu.GetSubMenu(i);
+		for (int j = 0; subMenu && j < subMenu->GetMenuItemCount() && !zmMenu; j++)
+		{
+			CMenu* subSubMenu = subMenu->GetSubMenu(j);
+			for (int k = 0; subSubMenu && k < subSubMenu->GetMenuItemCount() && !zmMenu; k++)
+				if (subSubMenu->GetMenuItemID(k) == ID_ZOOMMODE_W2I_ZOOMOUT)
+				{
+					zmMenu = subSubMenu;
+					break;
+				}
+		}
+	}
+	// set the zoom mode submenu
+	if (zmMenu)
+	{
+		CMFCToolBarButton *oribtn = m_wndToolBar.GetButton(m_wndToolBar.CommandToIndex(ID_VIEW_ZOOMMODE));
+		CString btnText;
+		btnText.LoadString(ID_VIEW_ZOOMMODE);
+		m_wndToolBar.ReplaceButton(ID_VIEW_ZOOMMODE,
+			CMFCToolBarMenuButton(-1, zmMenu->Detach(), oribtn->GetImage(), btnText, FALSE));
+	}
 
 	return 0;
 }
@@ -183,26 +240,6 @@ void ObZrvFrm::OnViewCustomize()
 	CMFCToolBarsCustomizeDialog* pDlgCust = new CMFCToolBarsCustomizeDialog(this, TRUE /* scan menus */);
 	pDlgCust->EnableUserDefinedToolbars();
 	pDlgCust->Create();
-}
-
-LRESULT ObZrvFrm::OnToolbarCreateNew(WPARAM wp,LPARAM lp)
-{
-	LRESULT lres = CFrameWndEx::OnToolbarCreateNew(wp,lp);
-	if (lres == 0)
-	{
-		return 0;
-	}
-
-	CMFCToolBar* pUserToolbar = (CMFCToolBar*)lres;
-	ASSERT_VALID(pUserToolbar);
-
-	BOOL bNameValid;
-	CString strCustomize;
-	bNameValid = strCustomize.LoadString(IDS_TOOLBAR_CUSTOMIZE);
-	ASSERT(bNameValid);
-
-	pUserToolbar->EnableCustomizeButton(TRUE, ID_VIEW_CUSTOMIZE, strCustomize);
-	return lres;
 }
 
 
@@ -266,3 +303,13 @@ void ObZrvFrm::SetInfoText(const wchar_t *text)
 	m_wndStatusBar.SetPaneText(0, text);
 }
 
+
+
+void ObZrvFrm::OnMouseHWheel(UINT nFlags, short zDelta, CPoint pt)
+{
+	// This feature requires Windows Vista or greater.
+	// The symbol _WIN32_WINNT must be >= 0x0600.
+	// TODO: Add your message handler code here and/or call default
+
+	CFrameWndEx::OnMouseHWheel(nFlags, zDelta, pt);
+}

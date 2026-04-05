@@ -263,19 +263,48 @@ void AulddaysToolBar::updateDpi()
 	// to the right level.
 	m_Images.OnSysColorChange();
 
-	// Calculate new button sizes and image sizes
 	CSize sizeImage(m_sizeImage);
+	double dpiscale = GetGlobalData()->GetRibbonImageScale();
+
+	bool useDpiImage = _dpiImages.count(96) > 0;
+	UINT dpiImageRes = 0;
+	if (useDpiImage)
+	{
+		// Unload current toolbar images.
+		// TODO: ResetAllImages() (and m_m_Images) is static, and the reset/load should be done for all toolbars.
+		CleanUpLockedImages();
+		ResetAllImages();
+		// Get the best image sizes
+		int dpi = AulddaysDpiHelper::getDpi(GetSafeHwnd());
+		int fitdpi = 96;
+		for (auto& i : _dpiImages)
+		{
+			if (i.first <= dpi && i.first > fitdpi)
+				fitdpi = i.first;
+		}
+		dpiscale = (double)dpi / fitdpi;
+		sizeImage = _dpiImages[fitdpi].size;
+		dpiImageRes = _dpiImages[fitdpi].res;
+	}
+
+	// Calculate new button sizes and image sizes
 	CSize sizeButton(sizeImage.cx + AFX_TOOLBAR_BUTTON_MARGIN, sizeImage.cy + AFX_TOOLBAR_BUTTON_MARGIN);
 	BOOL bDontScaleImages = m_bLocked ? m_bDontScaleLocked : m_bDontScaleImages;
 	if (!bDontScaleImages)
 	{
-		double dblImageScale = GetGlobalData()->GetRibbonImageScale();
-		sizeButton = CSize((int)(.5 + sizeButton.cx * dblImageScale), (int)(.5 + sizeButton.cy * dblImageScale));
+		sizeButton = CSize((int)(.5 + sizeButton.cx * dpiscale), (int)(.5 + sizeButton.cy * dpiscale));
 	}
 	if (m_bLocked)
 		SetLockedSizes(sizeButton, sizeImage);
 	else
 		SetSizes(sizeButton, sizeImage);
+
+	if (useDpiImage)
+	{
+		// reload toolbar images
+		AFX_GLOBAL_DATA_HELPER::set_dblRibbonImageScale(dpiscale);
+		LoadBitmap(dpiImageRes);	// TODO: should be done for all toolbars. see comment on ResetAllImages() above.
+	}
 
 	AdjustLayout();
 }

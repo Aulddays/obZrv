@@ -79,6 +79,8 @@ protected:
 	afx_msg void OnZoomOut();
 	afx_msg void OnUpdateZoomIn(CCmdUI *pCmdUI);
 	afx_msg void OnUpdateZoomOut(CCmdUI *pCmdUI);
+	afx_msg void OnUpdateZoomTo(CCmdUI* pCmdUI);
+	LRESULT OnGesture(WPARAM wParam, LPARAM lParam);
 	int zoom(int inout, bool test = false);
 	int _timecost = 0;
 
@@ -118,6 +120,8 @@ public:
 	afx_msg void OnLButtonDown(UINT nFlags, CPoint point);
 	afx_msg void OnLButtonUp(UINT nFlags, CPoint point);
 	afx_msg void OnMouseMove(UINT nFlags, CPoint point);
+	afx_msg int OnCreate(LPCREATESTRUCT lpCreateStruct);
+	afx_msg void OnVScroll(UINT nSBCode, UINT nPos, CScrollBar* pScrollBar);
 };
 
 #ifndef _DEBUG  // debug version in ObZrvView.cpp

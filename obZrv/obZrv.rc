@@ -83,7 +83,9 @@ LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
 // Icon with lowest ID value placed first to ensure application icon
 // remains consistent on all systems.
 IDR_MAINFRAME           ICON                    "res\\obZrv.ico"
+
 IDR_obZrvTYPE           ICON                    "res\\ObZrvDoc.ico"
+
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -100,6 +102,12 @@ IDR_MAINFRAME           BITMAP                  "res\\Toolbar.bmp"
 
 IDR_MAINFRAME           PNG                     "res\\Toolbar.20.png"
 
+IDR_MAINFRAME_120       PNG                     "res\\Toolbar.25.png"
+
+IDR_MAINFRAME_144       PNG                     "res\\Toolbar.30.png"
+
+IDR_MAINFRAME_192       PNG                     "res\\Toolbar.40.png"
+
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -115,7 +123,7 @@ BEGIN
     BUTTON      ID_VIEW_ZOOMIN
     BUTTON      ID_VIEW_ZOOMTO
     BUTTON      ID_VIEW_ZOOMOUT
-    BUTTON      ID_VIEW_ZOOMLOCK
+    BUTTON      ID_VIEW_ZOOMMODE
     BUTTON      ID_VIEW_ZOOMREM
     BUTTON      ID_VIEW_ZOOM
 END
@@ -133,8 +141,8 @@ BEGIN
         MENUITEM "&Open...\tCtrl+O",            ID_FILE_OPEN
         MENUITEM "Save &As...\tCtrl+S",         ID_FILE_SAVE_AS
         MENUITEM SEPARATOR
-        MENUITEM "Previous Image",              ID_FILE_PREV
-        MENUITEM "Next Image",                  ID_FILE_NEXT
+        MENUITEM "Previous Image\tLeft",        ID_FILE_PREV
+        MENUITEM "Next Image\tRight",           ID_FILE_NEXT
         MENUITEM SEPARATOR
         MENUITEM "Recent File",                 ID_FILE_MRU_FILE1, GRAYED
         MENUITEM SEPARATOR
@@ -152,8 +160,17 @@ BEGIN
     BEGIN
         MENUITEM "Zoom In\t+ / RButton drag",   ID_VIEW_ZOOMIN
         MENUITEM "Zoom Out\t- / RButton drag",  ID_VIEW_ZOOMOUT
-        MENUITEM "Zoom Lock",                   ID_VIEW_ZOOMLOCK
         MENUITEM "Remember Zool Level",         ID_VIEW_ZOOMREM
+        POPUP "Zoom Mode"
+        BEGIN
+            MENUITEM "Window Fit Image, ZoomOut if too Large", ID_ZOOMMODE_W2I_ZOOMOUT
+            MENUITEM "Window  Fit Image, No Zoom",  ID_ZOOMMODE_W2I
+            MENUITEM SEPARATOR
+            MENUITEM "Image Fit Window, ZoomOut Only", ID_ZOOMMODE_I2W_ZOOMOUT
+            MENUITEM "Image Fit Window",            ID_ZOOMMODE_I2W
+            MENUITEM SEPARATOR
+            MENUITEM "No Fit",                      ID_ZOOMMODE_NOZOOM
+        END
         POPUP "&Toolbars and Docking Windows"
         BEGIN
             MENUITEM "<placeholder>",               ID_VIEW_TOOLBAR
@@ -190,19 +207,21 @@ END
 
 IDR_MAINFRAME ACCELERATORS
 BEGIN
-    "N",            ID_FILE_NEW,            VIRTKEY, CONTROL
-    "O",            ID_FILE_OPEN,           VIRTKEY, CONTROL
-    "S",            ID_FILE_SAVE_AS,        VIRTKEY, CONTROL
-    "Z",            ID_EDIT_UNDO,           VIRTKEY, CONTROL
-    "X",            ID_EDIT_CUT,            VIRTKEY, CONTROL
-    "C",            ID_EDIT_COPY,           VIRTKEY, CONTROL
-    "V",            ID_EDIT_PASTE,          VIRTKEY, CONTROL
-    VK_BACK,        ID_EDIT_UNDO,           VIRTKEY, ALT
-    VK_DELETE,      ID_EDIT_CUT,            VIRTKEY, SHIFT
-    VK_INSERT,      ID_EDIT_COPY,           VIRTKEY, CONTROL
-    VK_INSERT,      ID_EDIT_PASTE,          VIRTKEY, SHIFT
-    VK_F6,          ID_NEXT_PANE,           VIRTKEY 
-    VK_F6,          ID_PREV_PANE,           VIRTKEY, SHIFT
+    "C",            ID_EDIT_COPY,           VIRTKEY, CONTROL, NOINVERT
+    VK_INSERT,      ID_EDIT_COPY,           VIRTKEY, CONTROL, NOINVERT
+    VK_DELETE,      ID_EDIT_CUT,            VIRTKEY, SHIFT, NOINVERT
+    "X",            ID_EDIT_CUT,            VIRTKEY, CONTROL, NOINVERT
+    "V",            ID_EDIT_PASTE,          VIRTKEY, CONTROL, NOINVERT
+    VK_INSERT,      ID_EDIT_PASTE,          VIRTKEY, SHIFT, NOINVERT
+    VK_BACK,        ID_EDIT_UNDO,           VIRTKEY, ALT, NOINVERT
+    "Z",            ID_EDIT_UNDO,           VIRTKEY, CONTROL, NOINVERT
+    "N",            ID_FILE_NEW,            VIRTKEY, CONTROL, NOINVERT
+    "O",            ID_FILE_OPEN,           VIRTKEY, CONTROL, NOINVERT
+    VK_LEFT,        ID_FILE_PREV,           VIRTKEY, NOINVERT
+    VK_RIGHT,       ID_FILE_NEXT,           VIRTKEY, NOINVERT
+    "S",            ID_FILE_SAVE_AS,        VIRTKEY, CONTROL, NOINVERT
+    VK_F6,          ID_NEXT_PANE,           VIRTKEY, NOINVERT
+    VK_F6,          ID_PREV_PANE,           VIRTKEY, SHIFT, NOINVERT
 END
 
 
@@ -407,8 +426,10 @@ STRINGTABLE
 BEGIN
     ID_VIEW_ZOOMIN          "Zoom In\nZoom In (+|RButton drag)"
     ID_VIEW_ZOOMOUT         "Zoom Out\nZoom Out (-|RButton drag)"
-    ID_FILE_PREV            "Previous Image\tPrevious Image"
-    ID_FILE_NEXT            "Next Image\tNext Image"
+    ID_FILE_PREV            "Previous Image\nPrevious Image (Left)"
+    ID_FILE_NEXT            "Next Image\nNext Image (Right)"
+    ID_VIEW_ZOOMTO          "Zoom To a Ratio\nZoom To"
+    ID_VIEW_ZOOMMODE        "Zoom Mode\nSelect Zoom Mode"
 END
 
 #endif    // English (United States) resources

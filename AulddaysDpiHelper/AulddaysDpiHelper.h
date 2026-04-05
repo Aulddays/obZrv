@@ -158,6 +158,7 @@ private:
 public:
 	AulddaysToolBar() { };
 	virtual ~AulddaysToolBar() { };
+	void addDpiImage(int dpi, UINT res, CSize size) { _dpiImages[dpi] = DpiImageItem{res, size}; }
 
 	void updateDpi();
 
@@ -166,6 +167,8 @@ protected:
 
 protected:
 	virtual CSize CalcLayout(DWORD dwMode, int nLength = -1);
+	struct DpiImageItem { UINT res; CSize size; };
+	std::map<int, DpiImageItem> _dpiImages;
 };
 
 #ifndef WM_DPICHANGED

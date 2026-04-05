@@ -242,6 +242,9 @@
   </ItemGroup>
   <ItemGroup>
     <Image Include="res\Toolbar.20.png" />
+    <Image Include="res\Toolbar.25.png" />
+    <Image Include="res\Toolbar.30.png" />
+    <Image Include="res\Toolbar.40.png" />
     <Image Include="res\Toolbar.bmp" />
     <Image Include="res\obZrv.ico" />
     <Image Include="res\obZrvDoc.ico" />
