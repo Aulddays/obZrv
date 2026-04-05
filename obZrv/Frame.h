@@ -25,6 +25,7 @@
 
 #include "../AulddaysDpiHelper/AulddaysDpiHelper.h"
 #include "AulddaysStatusBar.h"
+#include "ObZrvUIHelpers.h"
 
 class ObZrvFrm : public CFrameWndEx
 {
@@ -56,7 +57,7 @@ public:
 
 protected:  // control bar embedded members
 	CMFCMenuBar       m_wndMenuBar;
-	AulddaysToolBar       m_wndToolBar;
+	ObZrvToolBar       m_wndToolBar;
 	AulddaysStatusBar     m_wndStatusBar;
 	CMFCToolBarImages m_UserImages;
 

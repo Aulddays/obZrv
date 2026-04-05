@@ -26,8 +26,8 @@
 
 #include "Frame.h"
 #include "ZVisualManager.h"
-
 #include "../AulddaysDpiHelper/AulddaysDpiHelper.h"
+#include "ObZrvUIHelpers.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -201,8 +201,9 @@ afx_msg LRESULT ObZrvFrm::OnToolbarReset(WPARAM wp, LPARAM)
 		CMFCToolBarButton *oribtn = m_wndToolBar.GetButton(m_wndToolBar.CommandToIndex(ID_VIEW_ZOOMMODE));
 		CString btnText;
 		btnText.LoadString(ID_VIEW_ZOOMMODE);
-		m_wndToolBar.ReplaceButton(ID_VIEW_ZOOMMODE,
-			CMFCToolBarMenuButton(-1, zmMenu->Detach(), oribtn->GetImage(), btnText, FALSE));
+		ObZrvToolBarMenuButton newbtn(ID_VIEW_ZOOMMODE, zmMenu->Detach(), oribtn->GetImage(), btnText, FALSE);
+		newbtn.SetMenuOnly(TRUE);
+		m_wndToolBar.ReplaceButton(ID_VIEW_ZOOMMODE, newbtn);
 	}
 
 	return 0;

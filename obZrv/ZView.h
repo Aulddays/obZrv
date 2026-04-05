@@ -21,6 +21,8 @@
 // ZView.h : interface of the ObZrvView class
 //
 
+#include <set>
+
 #pragma once
 
 
@@ -69,6 +71,8 @@ protected:
 	{
 		ZT_FITIMAGE,
 	} _zoomtype = ZT_FITIMAGE;
+	std::set<int> _zoommodes = { ID_ZOOMMODE_W2I_ZOOMOUT, ID_ZOOMMODE_W2I, ID_ZOOMMODE_I2W_ZOOMOUT, ID_ZOOMMODE_I2W, ID_ZOOMMODE_NOFIT };
+	int _zoommode = ID_ZOOMMODE_W2I_ZOOMOUT;
 	// adjust window size to fit the image
 	void fitWindow2Image(Image *image, CPoint mousepos);
 
@@ -80,6 +84,8 @@ protected:
 	afx_msg void OnUpdateZoomIn(CCmdUI *pCmdUI);
 	afx_msg void OnUpdateZoomOut(CCmdUI *pCmdUI);
 	afx_msg void OnUpdateZoomTo(CCmdUI* pCmdUI);
+	afx_msg void OnZoomMode(UINT nID);
+	afx_msg void OnUpdateZoomMode(CCmdUI* pCmdUI);
 	LRESULT OnGesture(WPARAM wParam, LPARAM lParam);
 	int zoom(int inout, bool test = false);
 	int _timecost = 0;

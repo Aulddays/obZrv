@@ -58,6 +58,8 @@ BEGIN_MESSAGE_MAP(ObZrvView, CView)
 	ON_UPDATE_COMMAND_UI(ID_VIEW_ZOOMOUT, &ObZrvView::OnUpdateZoomOut)
 	ON_UPDATE_COMMAND_UI(ID_VIEW_ZOOMTO, &ObZrvView::OnUpdateZoomTo)
 	ON_UPDATE_COMMAND_UI(ID_VIEW_ZOOMMODE, &ObZrvView::OnUpdateZoomTo)
+	ON_COMMAND_RANGE(ID_ZOOMMODE_W2I_ZOOMOUT, ID_ZOOMMODE_NOFIT, &ObZrvView::OnZoomMode)
+	ON_UPDATE_COMMAND_UI_RANGE(ID_ZOOMMODE_W2I_ZOOMOUT, ID_ZOOMMODE_NOFIT, &ObZrvView::OnUpdateZoomMode)
 	ON_WM_LBUTTONDOWN()
 	ON_WM_LBUTTONUP()
 	ON_WM_MOUSEMOVE()
@@ -553,6 +555,20 @@ void ObZrvView::OnUpdateZoomTo(CCmdUI* pCmdUI)
 	pCmdUI->Enable(GetDocument()->getImage() != NULL);
 }
 
+void ObZrvView::OnUpdateZoomMode(CCmdUI* pCmdUI)
+{
+	pCmdUI->Enable();
+	pCmdUI->SetRadio(_zoommode == pCmdUI->m_nID);
+}
+
+void ObZrvView::OnZoomMode(UINT nID)
+{
+	if (_zoommodes.count(nID) == 0)
+		return;
+	_zoommode = nID;
+	AfxGetApp()->WriteProfileInt(L"Settings", L"ZoomMode", _zoommode);
+}
+
 int ObZrvView::zoom(int inout, bool test)
 {
 	static const std::vector<int> levels = {
@@ -631,6 +647,10 @@ int ObZrvView::OnCreate(LPCREATESTRUCT lpCreateStruct)
 {
 	if (CView::OnCreate(lpCreateStruct) == -1)
 		return -1;
+
+	_zoommode = AfxGetApp()->GetProfileInt(L"Settings", L"ZoomMode", ID_ZOOMMODE_W2I_ZOOMOUT);
+	if (_zoommodes.count(_zoommode) == 0)
+		_zoommode = ID_ZOOMMODE_W2I_ZOOMOUT;
 
 	//CGestureConfig config;
 	//GetGestureConfig(&config);

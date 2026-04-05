@@ -37,19 +37,17 @@
 #define ID_FILE_PREV                    32776
 #define ID_FILE_NEXT                    32777
 #define ID_VIEW_ZOOMTO                  32778
+#define ID_VIEW_ZOOMMODE                32779
 #define ID_VIEW_ZOOMREM                 32780
 #define ID_VIEW_ZOOM                    32781
 #define ID_VIEW_REMEMBERZOOLLEVEL       32783
 #define ID_VIEW_ZOOMPLACEHOLDER         32784
 #define ID_ZOOMMODE_W2I_ZOOMOUT         32788
 #define ID_ZOOMMODE_W2I                 32789
-#define ID_IMAGEFITWINDOW               32790
 #define ID_ZOOMMODE_I2W_ZOOMOUT         32791
 #define ID_ZOOMMODE_I2W                 32792
 #define ID_ZOOMMODE_NOFIT               32793
-#define ID_VIEW_ZOOMMODE                32779
 #define ID_ZOOMMODE_FIT                 32795
-#define ID_ZOOMMODE_NOZOOM              32796
 
 // Next default values for new objects
 // 

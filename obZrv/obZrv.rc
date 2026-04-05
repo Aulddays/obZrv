@@ -164,12 +164,12 @@ BEGIN
         POPUP "Zoom Mode"
         BEGIN
             MENUITEM "Window Fit Image, ZoomOut if too Large", ID_ZOOMMODE_W2I_ZOOMOUT
-            MENUITEM "Window  Fit Image, No Zoom",  ID_ZOOMMODE_W2I
+            MENUITEM "Window Fit Image, No Zoom",   ID_ZOOMMODE_W2I
             MENUITEM SEPARATOR
             MENUITEM "Image Fit Window, ZoomOut Only", ID_ZOOMMODE_I2W_ZOOMOUT
             MENUITEM "Image Fit Window",            ID_ZOOMMODE_I2W
             MENUITEM SEPARATOR
-            MENUITEM "No Fit",                      ID_ZOOMMODE_NOZOOM
+            MENUITEM "No Fit",                      ID_ZOOMMODE_NOFIT
         END
         POPUP "&Toolbars and Docking Windows"
         BEGIN
@@ -216,12 +216,16 @@ BEGIN
     VK_BACK,        ID_EDIT_UNDO,           VIRTKEY, ALT, NOINVERT
     "Z",            ID_EDIT_UNDO,           VIRTKEY, CONTROL, NOINVERT
     "N",            ID_FILE_NEW,            VIRTKEY, CONTROL, NOINVERT
+    VK_RIGHT,       ID_FILE_NEXT,           VIRTKEY, NOINVERT
     "O",            ID_FILE_OPEN,           VIRTKEY, CONTROL, NOINVERT
     VK_LEFT,        ID_FILE_PREV,           VIRTKEY, NOINVERT
-    VK_RIGHT,       ID_FILE_NEXT,           VIRTKEY, NOINVERT
     "S",            ID_FILE_SAVE_AS,        VIRTKEY, CONTROL, NOINVERT
     VK_F6,          ID_NEXT_PANE,           VIRTKEY, NOINVERT
     VK_F6,          ID_PREV_PANE,           VIRTKEY, SHIFT, NOINVERT
+    "+",            ID_VIEW_ZOOMIN,         ASCII,  NOINVERT
+    VK_OEM_PLUS,    ID_VIEW_ZOOMIN,         VIRTKEY, CONTROL, NOINVERT
+    VK_OEM_MINUS,   ID_VIEW_ZOOMOUT,        VIRTKEY, NOINVERT
+    VK_OEM_MINUS,   ID_VIEW_ZOOMOUT,        VIRTKEY, CONTROL, NOINVERT
 END
 
 
