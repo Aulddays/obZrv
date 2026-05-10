@@ -1,7 +1,7 @@
 // obZrv
 // https://github.com/Aulddays/obZrv
 // 
-// Copyright (c) 2020, 2021 Aulddays (https://dev.aulddays.com/). All rights reserved.
+// Copyright (c) 2020-2026 Aulddays (https://dev.aulddays.com/). All rights reserved.
 //
 // This file is part of obZrv.
 // 
@@ -20,8 +20,11 @@
 
 #pragma once
 
+#include <windows.h>
+#include <stdio.h>
 #include <stdint.h>
-#include "BasicBitmap\BasicBitmap.h"
+#include "BasicBitmap/BasicBitmap.h"
+#include "../unifs/unifile.hpp"
 
 enum IM_ErrorCodes
 {
@@ -38,49 +41,42 @@ class Image
 public:
 	virtual ~Image() { delete[] _filebuf; }
 
-	// impage properties
+	// image properties
 	virtual SIZE getDimension() const = 0;
 	virtual bool isAnim() const { return getFrameCount() > 1; }
 	virtual const wchar_t *getFormat() const = 0;
 
 	// Get transformed bitmap of current frame
 	virtual BasicBitmap *getBBitmap(RECT srcRect, SIZE outSize) = 0;
-	// Get transformed bitmap of current frame: scale to scaleSize and then crop cropRect on scaled image.
-	// Result size shall be equal to or larger than cropRect, and the valid result area is on (0, 0, cropRect.w, cropRect.h)
 	virtual BasicBitmap* getBBitmap(SIZE scaleSize, RECT cropRect) = 0;
 
 	// animation properties
 	virtual int getLoopNum() const = 0;
 	virtual int getFrameCount() const = 0;
-	// decode the next frame
+	virtual int getCurFrame() const { return 0; }
+	virtual const wchar_t *getColorInfo() const { return L""; }
 	virtual int nextFrame(bool rewind=false) = 0;
-	// get time delay of current frame, in ms
 	virtual long getFrameDelay() const = 0;
-
 
 protected:
 	// image file buffer
 	unsigned char *_filebuf = NULL;
 	size_t _filesize = 0;
 
-	int readFile(const wchar_t *fn)
+	// Read all data from a UniFile into _filebuf/_filesize.
+	int readFromUniFile(UniFile* f)
 	{
 		assert(_filebuf == NULL);
-		FILE *fp = _wfopen(fn, L"rb");
-		if (!fp)
-			return IM_READFILE_ERR;
-		fseek(fp, 0, SEEK_END);
-		_filesize = ftell(fp);
+		if (f->seek(0, SEEK_END) != 0) return IM_READFILE_ERR;
+		int64_t sz = f->tell();
+		if (sz <= 0) return IM_READFILE_ERR;
+		_filesize = (size_t)sz;
 		_filebuf = new unsigned char[_filesize];
-		fseek(fp, 0, SEEK_SET);
-		size_t readlen = fread(_filebuf, 1, _filesize, fp);
-		fclose(fp);
-		if (readlen != _filesize)
-			return IM_READFILE_ERR;
+		if (f->seek(0, SEEK_SET) != 0) { delete[] _filebuf; _filebuf = NULL; return IM_READFILE_ERR; }
+		size_t got = f->read(_filebuf, _filesize);
+		if (got != _filesize) { delete[] _filebuf; _filebuf = NULL; return IM_READFILE_ERR; }
 		return IM_OK;
 	}
-
-
 };
 
 class Codec
@@ -89,13 +85,10 @@ public:
 	Codec() { };
 	virtual ~Codec() { };
 
-public:
 	virtual int init() { return 0; };
-	//virtual int release() = 0;
-	virtual int open(const wchar_t *filename, Image ** image, uint32_t bgcolor) = 0;
 
-protected:
-
+	// Open from an already-open UniFile.
+	virtual int open(UniFile *f, Image **image, uint32_t bgcolor) = 0;
 };
 
 #define MAX_IMAGE_DIMENSION 65535

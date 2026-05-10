@@ -6,7 +6,8 @@
 // for more information, please see the readme file
 //
 //=====================================================================
-#include "stdafx.h"
+#include "pch.h"
+#include <stdio.h>
 #include <stdint.h>
 
 #include "BasicBitmap.h"

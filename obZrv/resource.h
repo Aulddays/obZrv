@@ -1,61 +1,65 @@
-//{{NO_DEPENDENCIES}}
-// Microsoft Visual C++ generated include file.
-// Used by obZrv.rc
-//
-#define IDD_ABOUTBOX                    100
-#define IDR_POPUP_EDIT                  119
-#define ID_STATUSBAR_PANE1              120
-#define ID_STATUSBAR_PANE2              121
-#define IDS_STATUS_PANE1                122
-#define IDS_STATUS_PANE2                123
-#define IDS_TOOLBAR_STANDARD            124
-#define IDS_TOOLBAR_CUSTOMIZE           125
-#define ID_VIEW_CUSTOMIZE               126
-#define IDR_MAINFRAME                   128
-#define IDR_obZrvTYPE                   130
-#define ID_SET_STYLE                    201
-#define ID_VIEW_APPLOOK_WIN_2000        205
-#define ID_VIEW_APPLOOK_OFF_XP          206
-#define ID_VIEW_APPLOOK_WIN_XP          207
-#define ID_VIEW_APPLOOK_OFF_2003        208
-#define ID_VIEW_APPLOOK_VS_2005         209
-#define ID_VIEW_APPLOOK_VS_2008         210
-#define ID_VIEW_APPLOOK_OFF_2007_BLUE   215
-#define ID_VIEW_APPLOOK_OFF_2007_BLACK  216
-#define ID_VIEW_APPLOOK_OFF_2007_SILVER 217
-#define ID_VIEW_APPLOOK_OFF_2007_AQUA   218
-#define ID_VIEW_APPLOOK_WINDOWS_7       219
-#define IDS_EDIT_MENU                   306
-#define ID_INDICATOR_IMAGEINFO          310
-#define IDR_MAINFRAME_120               312
-#define IDR_MAINFRAME_144               313
-#define IDR_MAINFRAME_192               314
-#define ID_APPLICATIONLOOK_WINDOWS7     32771
-#define ID_VIEW_ZOOMIN                  32773
-#define ID_VIEW_ZOOMOUT                 32774
-#define ID_VIEW_ZOOMOUT32775            32775
-#define ID_FILE_PREV                    32776
-#define ID_FILE_NEXT                    32777
-#define ID_VIEW_ZOOMTO                  32778
-#define ID_VIEW_ZOOMMODE                32779
-#define ID_VIEW_ZOOMREM                 32780
-#define ID_VIEW_ZOOM                    32781
-#define ID_VIEW_REMEMBERZOOLLEVEL       32783
-#define ID_VIEW_ZOOMPLACEHOLDER         32784
-#define ID_ZOOMMODE_W2I_ZOOMOUT         32788
-#define ID_ZOOMMODE_W2I                 32789
-#define ID_ZOOMMODE_I2W_ZOOMOUT         32791
-#define ID_ZOOMMODE_I2W                 32792
-#define ID_ZOOMMODE_NOFIT               32793
-#define ID_ZOOMMODE_FIT                 32795
+#pragma once
 
-// Next default values for new objects
-// 
-#ifdef APSTUDIO_INVOKED
-#ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        315
-#define _APS_NEXT_COMMAND_VALUE         32797
-#define _APS_NEXT_CONTROL_VALUE         1000
-#define _APS_NEXT_SYMED_VALUE           310
-#endif
-#endif
+/* Icons */
+#define IDI_APPICON        101
+
+/* Menus */
+#define IDR_MAINMENU       201
+
+/* Toolbar PNG strips (RCDATA) -- one per DPI tier */
+#define IDR_TOOLBAR_96     301
+#define IDR_TOOLBAR_120    302
+#define IDR_TOOLBAR_144    303
+#define IDR_TOOLBAR_192    304
+
+/* Commands - also used as string table IDs for status bar hints.
+ * Adding STRING_TIP_OFFSET gives the short tooltip string ID. */
+#define ID_FILE_EXIT       1001
+#define ID_VIEW_FILELIST   1002
+#define ID_HELP_ABOUT      1003
+#define ID_FILE_OPEN       1004
+#define ID_FILE_PREV       1005
+#define ID_FILE_NEXT       1006
+#define ID_VIEW_ZOOMIN     1007
+#define ID_VIEW_ZOOMOUT    1008
+#define ID_VIEW_ZOOMMODE   1009  /* toolbar button: opens zoom-mode popup */
+
+/* Zoom mode sub-commands (contiguous for CheckMenuRadioItem) */
+#define ID_ZOOMMODE_W2I_ZOOMOUT  1010  /* Window Fit Image, ZoomOut if too Large */
+#define ID_ZOOMMODE_W2I          1011  /* Window Fit Image, No Zoom              */
+#define ID_ZOOMMODE_I2W_ZOOMOUT  1012  /* Image Fit Window, ZoomOut Only         */
+#define ID_ZOOMMODE_I2W          1013  /* Image Fit Window                       */
+#define ID_ZOOMMODE_NOFIT        1014  /* No Fit                                 */
+
+/* Stub commands (not yet implemented, always disabled) */
+#define ID_FILE_SAVE_AS    1015
+#define ID_EDIT_UNDO       1016
+#define ID_EDIT_CUT        1017
+#define ID_EDIT_COPY       1018
+#define ID_EDIT_PASTE      1019
+#define ID_VIEW_ZOOMTO     1020
+#define ID_VIEW_ZOOMREM    1021
+#define ID_VIEW_ZOOM       1022
+
+/* Remote open command */
+#define ID_FILE_OPEN_REMOTE  1023
+
+/* Delete commands */
+#define ID_FILE_DELETE       1024   /* Del:       move to recycle bin (local) / confirm+delete (remote) */
+#define ID_FILE_DELETE_PERM  1025   /* Shift+Del: permanent delete (local) / direct delete (remote) */
+
+/* Offset: command ID + STRING_TIP_OFFSET = short tooltip string */
+#define STRING_TIP_OFFSET  100
+
+/* Custom message: LPARAM = const wchar_t * info text */
+#define WM_APP_SETINFO     (WM_APP + 1)
+
+/* Dialog: Connect to remote server */
+#define IDD_CONNECT        401
+#define IDC_HOST           501
+
+/* Dialog: Remote file browser */
+#define IDD_REMOTE_BROWSER 402
+#define IDC_PATHBAR        503
+#define IDC_FILELIST       504
+#define IDC_BTN_UP         505

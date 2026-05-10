@@ -61,7 +61,9 @@
 // 2011.2.13  skywind  immigrate tga/bmp loader
 //
 //=====================================================================
-#include "stdafx.h"
+
+#include "pch.h"
+#include <stdio.h>
 #include "BasicBitmap.h"
 #include <algorithm>
 #include <stdint.h>
@@ -73,8 +75,8 @@
 #ifndef WIN32_LEAN_AND_MEAN  
 #define WIN32_LEAN_AND_MEAN  
 #endif
-#include <Windows.h>
-#include <ObjBase.h>
+#include <windows.h>
+#include <objbase.h>
 #undef min
 #ifndef _WIN32
 #define _WIN32 
@@ -4241,7 +4243,7 @@ void BasicBitmap::ScaleCropAda(
 	int crx, int cry, int crw, int crh)	// crop rect on scaled image
 {
 	if (src->_w >= 20 && src->_h >= 20 && src->_w >= scw * 3 && src->_h >= sch * 3)	// extreme downacale, use pre-avg-filter + bicubic
-		ScaleCrop(dx, dy, src, scw, sch, crx, cry, crw, crh, PIXEL_FLAG_BILINEAR | PIXEL_FLAG_SRCCOPY, 0xffffffff, 0.6);
+		ScaleCrop(dx, dy, src, scw, sch, crx, cry, crw, crh, PIXEL_FLAG_BILINEAR | PIXEL_FLAG_SRCCOPY, 0xffffffff, 0.6f);
 	else
 		ScaleCrop(dx, dy, src, scw, sch, crx, cry, crw, crh, PIXEL_FLAG_LANCZOS3 | PIXEL_FLAG_SRCCOPY, 0xffffffff, 0);
 }

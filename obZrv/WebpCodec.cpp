@@ -1,7 +1,7 @@
 // obZrv
 // https://github.com/Aulddays/obZrv
 // 
-// Copyright (c) 2020, 2021 Aulddays (https://dev.aulddays.com/). All rights reserved.
+// Copyright (c) 2020-2026 Aulddays (https://dev.aulddays.com/). All rights reserved.
 //
 // This file is part of obZrv.
 // 
@@ -18,7 +18,7 @@
 // You should have received a copy of the GNU General Public License
 // along with obZrv. If not, see <https://www.gnu.org/licenses/>.
 
-#include "stdafx.h"
+#include "pch.h"
 #include "WebpCodec.h"
 #include <memory>
 #include <algorithm>
@@ -57,12 +57,10 @@ protected:
 	WebPAnimDecoder* _animdec = NULL;
 
 protected:
-	int open(const wchar_t *filename, uint32_t bgcolor)
+	// Decode from _filebuf (must already be filled before calling).
+	int openFromBuffer(uint32_t bgcolor)
 	{
 		_bgcolor = bgcolor;
-		int res = readFile(filename);
-		if (res != IM_OK)
-			return res;
 		WebPBitstreamFeatures imgfea;
 		if (WebPGetFeatures(_filebuf, _filesize, &imgfea) != VP8_STATUS_OK)
 			return IM_FAIL;
@@ -72,8 +70,8 @@ protected:
 			// not animated, just decode and buffer it
 			// BasicBitmap::A8R8G8B8/R8G8B8 -> A/R is the highest (last if little-endian) byte
 			// BGRA/BGR in WebPDecode seems to be the byte order. so WebPDecodeBGR(A)Into maps to (A8)R8G8B8
-			std::unique_ptr<BasicBitmap> bmp = std::make_unique<BasicBitmap>(imgfea.width, imgfea.height,
-				imgfea.has_alpha ? BasicBitmap::A8R8G8B8 : BasicBitmap::R8G8B8);
+			std::unique_ptr<BasicBitmap> bmp(new BasicBitmap(imgfea.width, imgfea.height,
+				imgfea.has_alpha ? BasicBitmap::A8R8G8B8 : BasicBitmap::R8G8B8));
 			if (imgfea.has_alpha &&
 				!WebPDecodeBGRAInto(_filebuf, _filesize, bmp->Bits(), bmp->Pitch() * bmp->Height(), bmp->Pitch()) ||
 				!imgfea.has_alpha &&
@@ -106,7 +104,7 @@ protected:
 		_loopnum = animinfo.loop_count;
 		_dimension = { (LONG)animinfo.canvas_width, (LONG)animinfo.canvas_height };
 		// get first frame
-		res = nextFrame(true);
+		int res = nextFrame(true);
 		if (res != IM_OK)
 			return res;
 		if (_framecnt <= 1)
@@ -210,6 +208,16 @@ public:
 	{
 		return L"webp";
 	}
+
+	virtual int getCurFrame() const { return _curfid; }
+
+	virtual const wchar_t *getColorInfo() const
+	{
+		/* WebP is always ARGB32 (with alpha) or RGB24 (without), determined at decode */
+		if (_fbitmap)
+			return _fbitmap->Format() == BasicBitmap::A8R8G8B8 ? L"ARGB32" : L"RGB24";
+		return L"";
+	}
 };
 
 
@@ -221,13 +229,16 @@ WebpCodec::~WebpCodec()
 {
 }
 
-int WebpCodec::open(const wchar_t *filename, Image ** image, uint32_t bgcolor)
+int WebpCodec::open(UniFile *f, Image **image, uint32_t bgcolor)
 {
 	*image = NULL;
-	std::unique_ptr<WebpImage> pimg = std::make_unique<WebpImage>();
-	int res = pimg->open(filename, bgcolor);
+	std::unique_ptr<WebpImage> pimg(new WebpImage());
+	int res = pimg->readFromUniFile(f);
+	if (res != IM_OK)
+		return res;
+	res = pimg->openFromBuffer(bgcolor);
 	if (res != IM_OK)
 		return res;
 	*image = pimg.release();
-	return res;
+	return IM_OK;
 }

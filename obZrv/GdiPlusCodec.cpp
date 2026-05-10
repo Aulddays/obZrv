@@ -1,7 +1,7 @@
 // obZrv
-// https://github.com/Aulddays/ZaViewer
+// https://github.com/Aulddays/obZrv
 // 
-// Copyright (c) 2020, 2021 Aulddays (https://dev.aulddays.com/). All rights reserved.
+// Copyright (c) 2020-2026 Aulddays (https://dev.aulddays.com/). All rights reserved.
 //
 // This file is part of obZrv.
 // 
@@ -18,13 +18,15 @@
 // You should have received a copy of the GNU General Public License
 // along with obZrv. If not, see <https://www.gnu.org/licenses/>.
 
-#include "stdafx.h"
-#include "GdiPlusCodec.h"
+#include "pch.h"
+#include <windows.h>
+#include <gdiplus.h>
+#include <ole2.h>
 #include <stdint.h>
 #include <memory>
 #include <vector>
 #include <algorithm>
-#include <gdiplus.h>
+#include "GdiPlusCodec.h"
 
 #undef max
 
@@ -41,6 +43,7 @@ protected:
 	std::vector<long> _framedelay;
 	int _loopnum = 0;
 	int _curfid = 0;	// current frame id
+	Gdiplus::PixelFormat _oripixfmt = PixelFormat32bppARGB;  // original pixel format
 
 	// bitmap object of current frame
 	BasicBitmap *_fbitmap = NULL;
@@ -50,13 +53,28 @@ protected:
 
 	uint32_t _bgcolor = 0;
 
-	int open(const wchar_t *filename, uint32_t bgcolor)
+	// Decode from _filebuf (must already be filled before calling).
+	int openFromBuffer(uint32_t bgcolor)
 	{
 		_bgcolor = bgcolor;
 
+		// Create an IStream over the in-memory buffer, then load via GDI+.
+		// Use CreateStreamOnHGlobal (ole32) to wrap the buffer.
+		HGLOBAL hg = GlobalAlloc(GMEM_MOVEABLE, _filesize);
+		if (!hg) return IM_FAIL;
+		memcpy(GlobalLock(hg), _filebuf, _filesize);
+		GlobalUnlock(hg);
+		IStream *stream = NULL;
+		if (CreateStreamOnHGlobal(hg, TRUE, &stream) != S_OK || !stream)
+		{
+			GlobalFree(hg);
+			return IM_FAIL;
+		}
+
 		// load the image using gdi
-		_gbitmap = new Gdiplus::Bitmap(filename);
-		if (_gbitmap->GetLastStatus() != Gdiplus::Ok)
+		_gbitmap = Gdiplus::Bitmap::FromStream(stream);
+		stream->Release();
+		if (!_gbitmap || _gbitmap->GetLastStatus() != Gdiplus::Ok)
 			return IM_FAIL;
 
 		_dimension.cx = _gbitmap->GetWidth();
@@ -68,12 +86,10 @@ protected:
 
 		// test animated
 		UINT dimcnt = _gbitmap->GetFrameDimensionsCount();
-		TRACE("Frame dim count %u\n", dimcnt);
 		std::vector<GUID> dimids(dimcnt);
 		if (_gbitmap->GetFrameDimensionsList(dimids.data(), dimcnt) != Gdiplus::Ok)
 			return IM_FAIL;
 		UINT framecnt = dimcnt != 0 ? _gbitmap->GetFrameCount(&dimids[0]) : 1;
-		TRACE("Frame count %u\n", framecnt);
 		_framecnt = framecnt;
 		// verify image format
 		if (_framecnt > 1 && _imgfmt != Gdiplus::ImageFormatGIF && _imgfmt != Gdiplus::ImageFormatTIFF)
@@ -106,10 +122,10 @@ protected:
 			_loopnum = *((SHORT*)propitem->value);
 			if (totaldelay == 0 && _loopnum <= 0)
 				_loopnum = 1;	// if totaldelay is 0, force loop only once
-			TRACE("Loop count %d\n", _loopnum);
 		}
 
 		// convert ot BasicBitmap
+		_oripixfmt = _gbitmap->GetPixelFormat();
 		_fbitmap = gdiplusConvert(_gbitmap);
 		if (!_fbitmap)
 			return IM_FAIL;
@@ -228,6 +244,30 @@ public:
 			return L"icon";
 		return L"UNKNOWN";
 	}
+
+	virtual int getCurFrame() const { return _curfid; }
+
+	virtual const wchar_t *getColorInfo() const
+	{
+		switch (_oripixfmt)
+		{
+		case PixelFormat32bppARGB:   return L"ARGB32";
+		case PixelFormat32bppPARGB:  return L"ARGB32";
+		case PixelFormat64bppARGB:   return L"ARGB64";
+		case PixelFormat64bppPARGB:  return L"ARGB64";
+		case PixelFormat32bppRGB:    return L"RGB32";
+		case PixelFormat24bppRGB:    return L"RGB24";
+		case PixelFormat48bppRGB:    return L"RGB48";
+		case PixelFormat16bppRGB565: return L"RGB16";
+		case PixelFormat16bppRGB555: return L"RGB16";
+		case PixelFormat16bppARGB1555: return L"ARGB16";
+		case PixelFormat16bppGrayScale: return L"Gray16";
+		case PixelFormat8bppIndexed: return L"Index8";
+		case PixelFormat4bppIndexed: return L"Index4";
+		case PixelFormat1bppIndexed: return L"Index1";
+		default: return L"";
+		}
+	}
 };
 
 GdiPlusCodec::GdiPlusCodec()
@@ -238,15 +278,19 @@ GdiPlusCodec::~GdiPlusCodec()
 {
 }
 
-int GdiPlusCodec::open(const wchar_t *filename, Image ** image, uint32_t bgcolor)
+int GdiPlusCodec::open(UniFile *f, Image **image, uint32_t bgcolor)
 {
 	*image = NULL;
-	std::unique_ptr<GdiPlusImage> pimg = std::make_unique<GdiPlusImage>();
-	int res = pimg->open(filename, bgcolor);
+	std::unique_ptr<GdiPlusImage> pimg(new GdiPlusImage());
+	// Load from UniFile directly: readFromUniFile fills _filebuf, then open() uses it.
+	int res = pimg->readFromUniFile(f);
+	if (res != IM_OK)
+		return res;
+	res = pimg->openFromBuffer(bgcolor);
 	if (res != IM_OK)
 		return res;
 	*image = pimg.release();
-	return res;
+	return IM_OK;
 }
 
 void *internal_memcpy(void *dst, const void *src, size_t size);

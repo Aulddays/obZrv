@@ -1,7 +1,7 @@
 // obZrv
 // https://github.com/Aulddays/obZrv
 // 
-// Copyright (c) 2020, 2021 Aulddays (https://dev.aulddays.com/). All rights reserved.
+// Copyright (c) 2020-2026 Aulddays (https://dev.aulddays.com/). All rights reserved.
 //
 // This file is part of obZrv.
 // 
@@ -27,8 +27,6 @@ public:
 	GdiPlusCodec();
 	virtual ~GdiPlusCodec();
 
-	//virtual int init();
-	//virtual int release();
-	virtual int open(const wchar_t *filename, Image ** image, uint32_t bgcolor);
+	virtual int open(UniFile *f, Image **image, uint32_t bgcolor);
 };
 
