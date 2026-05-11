@@ -1,23 +1,3 @@
-// obZrv
-// https://github.com/Aulddays/obZrv
-// 
-// Copyright (c) 2020-2026 Aulddays (https://dev.aulddays.com/). All rights reserved.
-//
-// This file is part of obZrv.
-// 
-// obZrv is free software : you can redistribute it and / or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-// 
-// obZrv is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.See the
-// GNU General Public License for more details.
-// 
-// You should have received a copy of the GNU General Public License
-// along with obZrv. If not, see <https://www.gnu.org/licenses/>.
-
 #pragma once
 // Protocol definition for the UniFs client-server wire format.
 //
@@ -82,12 +62,16 @@ static const int      HEARTBEAT_INTERVAL_SEC = 60;      // client heartbeat peri
 // Command codes  (client -> server)
 // ---------------------------------------------------------------------------
 
-static const uint8_t CMD_FS_OPEN    = 0x01;  // path_len:u16 + path:N
-static const uint8_t CMD_FS_NEXT    = 0x02;  // fs_handle:u32
-static const uint8_t CMD_FS_REWIND  = 0x03;  // fs_handle:u32
-static const uint8_t CMD_FS_CLOSE   = 0x04;  // fs_handle:u32
-static const uint8_t CMD_FS_READDIR = 0x05;  // fs_handle:u32
-static const uint8_t CMD_FS_REMOVE  = 0x06;  // fs_handle:u32 + name_len:u16 + name:N
+// Batch directory read: returns all entries in a single response.
+//   request : path_len:u16 + path:N
+//   response: entry_count:u32 +
+//             [ type:u8 + ctime:u32 + mtime:u32 + size:u64 +
+//               name_len:u16 + name:N ] × entry_count
+static const uint8_t CMD_FS_READDIR = 0x01;
+
+// Remove a file by path (directories are rejected).
+//   request : path_len:u16 + path:N
+static const uint8_t CMD_FS_REMOVE  = 0x06;
 
 static const uint8_t CMD_FILE_OPEN  = 0x11;  // flags:u8 + path_len:u16 + path:N
 static const uint8_t CMD_FILE_SEEK  = 0x12;  // file_handle:u32 + offset:i64 + whence:u8

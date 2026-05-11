@@ -23,7 +23,7 @@
 #include <string>
 #include <memory>
 
-class UniFsClient;
+class UniFs;
 
 // Modal dialog for browsing a remote UniFs directory tree.
 // DoModal() returns the selected file path (UTF-8, Unix-style: /dir/file.jpg)
@@ -31,7 +31,7 @@ class UniFsClient;
 class RemoteBrowserDlg {
 public:
 	// path_result receives the selected file path on success.
-	std::string DoModal(HWND hParent, UniFsClient* client);
+	std::string DoModal(HWND hParent, UniFs* client);
 
 private:
 	static INT_PTR CALLBACK DlgProc(HWND, UINT, WPARAM, LPARAM);
@@ -41,8 +41,8 @@ private:
 	void PopulateList();
 	void TryOpenSelected();
 
-	HWND         m_hwnd   = NULL;
-	UniFsClient* m_client = nullptr;
+	HWND   m_hwnd   = NULL;
+	UniFs* m_client = nullptr;
 	std::string  m_cwd;          // current directory (Unix path, no trailing /)
 	std::string  m_result;       // filled on IDOK
 };

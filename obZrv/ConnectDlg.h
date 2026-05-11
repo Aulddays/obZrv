@@ -25,9 +25,9 @@
 #include <vector>
 #include <stdint.h>
 
-class UniFsClient;  // forward declaration
+class UniFs;  // forward declaration
 
-/* ConnectDlg - modal dialog to connect to a remote UniFsServer.
+/* ConnectDlg - modal dialog to connect to a remote UniFs server.
  *
  * Usage:
  *   ConnectDlg dlg;
@@ -37,10 +37,10 @@ class UniFsClient;  // forward declaration
 class ConnectDlg
 {
 public:
-    /* Show the dialog.  On success returns a connected UniFsClient and fills
+    /* Show the dialog.  On success returns a connected UniFs (RemoteFs) and fills
      * host/port; on cancel or connection failure returns nullptr. */
-    std::unique_ptr<UniFsClient> DoModal(HWND hParent,
-                                         std::string &host, uint16_t &port);
+    std::unique_ptr<UniFs> DoModal(HWND hParent,
+                                   std::string &host, uint16_t &port);
 
 private:
     HWND m_hwnd = NULL;
@@ -51,5 +51,5 @@ private:
     /* Filled by IDOK handler before EndDialog */
     std::string  m_host;
     uint16_t     m_port   = 0;
-    std::unique_ptr<UniFsClient> m_client;  // set on successful connect
+    std::unique_ptr<UniFs> m_client;  // set on successful connect
 };

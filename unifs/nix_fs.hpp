@@ -1,44 +1,35 @@
-// obZrv
-// https://github.com/Aulddays/obZrv
-// 
-// Copyright (c) 2020-2026 Aulddays (https://dev.aulddays.com/). All rights reserved.
-//
-// This file is part of obZrv.
-// 
-// obZrv is free software : you can redistribute it and / or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-// 
-// obZrv is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.See the
-// GNU General Public License for more details.
-// 
-// You should have received a copy of the GNU General Public License
-// along with obZrv. If not, see <https://www.gnu.org/licenses/>.
-
 #pragma once
 #ifndef _WIN32
 
 #include "unifs.hpp"
 #include <dirent.h>
 
-class NixFs : public UniFs {
+// Internal per-readdir iteration state for Linux; created by NixFs::readdir().
+class NixDirIterImpl : public DirIterImpl {
 public:
-	explicit NixFs(const char* path);
-	~NixFs();
+	explicit NixDirIterImpl(const char* path);
+	~NixDirIterImpl();
 
-	int       readdir() override;
-	DirEntry* next()    override;
-	int       rewind()  override;
-	void      close()   override;
-	int       remove(const char* name) override;
+	bool            valid() const { return dir_ != nullptr; }
+	const DirEntry* next()  override;
 
 private:
 	DIR*        dir_;
-	std::string base_;  // directory path, used to build full paths for stat()/remove()
+	std::string base_;
 	DirEntry    entry_;
+};
+
+class NixFs : public UniFs {
+public:
+	static std::unique_ptr<UniFs> open();
+
+	DirIter                  readdir(const char* path)             override;
+	std::unique_ptr<UniFile> openfile(const char* path,
+	                                  const char* mode)            override;
+	int                      removefile(const char* path)          override;
+
+private:
+	NixFs() {}
 };
 
 #endif // !_WIN32

@@ -29,7 +29,7 @@
 
 class ImageView;    // forward declaration
 class FileList;     // forward declaration
-class UniFsClient;  // forward declaration (defined in unifs/client.hpp)
+class UniFs;  // forward declaration (defined in unifs/unifs.hpp)
 
 class Doc
 {
@@ -79,10 +79,10 @@ public:
 	void setFileList(FileList *fl) { _fileList = fl; }
 
 	// Remote connection management
-	void setClient(std::shared_ptr<UniFsClient> c,
+	void setClient(std::shared_ptr<UniFs> c,
 				   const std::string &host, uint16_t port);
 	bool isRemote() const { return _client != nullptr; }
-	UniFsClient *client() const { return _client.get(); }
+	UniFs *client() const { return _client.get(); }
 	const std::string &remoteHost() const { return _remoteHost; }
 	uint16_t remotePort() const { return _remotePort; }
 
@@ -97,7 +97,7 @@ private:
 	static uint32_t _bgColor;
 
 	// Remote connection (nullptr = local mode)
-	std::shared_ptr<UniFsClient> _client;
+	std::shared_ptr<UniFs>       _client;
 	std::string                  _remoteHost;
 	uint16_t                     _remotePort = 0;
 
@@ -120,4 +120,8 @@ private:
 	// update _dir/_dirfiles; if preservelast==true and file is already in
 	// current _dir, skip the re-scan
 	int updateDir(const wchar_t *filepath, bool preservelast = false);
+
+	// After a failed open, rescan dir and open the nearest file to refFile.
+	// dirHint: +1 = prefer file after refFile, -1 = prefer file before.
+	int reopenAfterFail(const std::wstring& refFile, int dirHint);
 };

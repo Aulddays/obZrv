@@ -21,7 +21,7 @@
 #include "pch.h"
 #include <winsock2.h>  // must precede windows.h when using asio
 #include "ConnectDlg.h"
-#include "../unifs/client.hpp"
+#include "../unifs/remote_fs.hpp"
 #include "resource.h"
 #include "strutil.h"
 #include "config.h"
@@ -58,7 +58,7 @@ static void SaveHistory(const std::wstring &entry)
 	}
 }
 
-std::unique_ptr<UniFsClient> ConnectDlg::DoModal(HWND hParent,
+std::unique_ptr<UniFs> ConnectDlg::DoModal(HWND hParent,
 												   std::string &host,
 												   uint16_t    &port)
 {
@@ -70,7 +70,7 @@ std::unique_ptr<UniFsClient> ConnectDlg::DoModal(HWND hParent,
 				   hParent, DlgProc, (LPARAM)this);
 
 	if (!m_client)
-		return std::unique_ptr<UniFsClient>();
+		return std::unique_ptr<UniFs>();
 
 	host = m_host;
 	port = m_port;
@@ -136,7 +136,7 @@ INT_PTR ConnectDlg::HandleMessage(HWND hDlg, UINT msg, WPARAM wp, LPARAM /*lp*/)
 			}
 			m_port = (uint16_t)p;
 			// Attempt connection while dialog is still open
-			m_client = UniFsClient::connect(m_host.c_str(), m_port);
+			m_client = RemoteFs::open(m_host.c_str(), m_port);
 			if (!m_client) {
 				MessageBoxW(hDlg,
 							L"Could not connect to the remote server.\n"

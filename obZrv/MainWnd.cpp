@@ -21,7 +21,7 @@
 #include "pch.h"
 #include <winsock2.h>  // must precede windows.h when using asio
 #include "MainWnd.h"
-#include "../unifs/client.hpp"
+#include "../unifs/remote_fs.hpp"
 #include "resource.h"
 #include "dpi.h"
 #include "config.h"
@@ -256,7 +256,7 @@ void MainWnd::OnCommand(UINT id)
 			RemoteBrowserDlg browser;
 			std::string remotePath = browser.DoModal(m_hwnd, client.get());
 			if (!remotePath.empty()) {
-				m_doc.setClient(std::shared_ptr<UniFsClient>(client.release()),
+				m_doc.setClient(std::shared_ptr<UniFs>(client.release()),
 								host, port);
 				// Build remote:// URL for Doc::open
 				std::string url = "remote://" + host + ":" +

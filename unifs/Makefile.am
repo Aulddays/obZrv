@@ -5,7 +5,7 @@ libunifs_a_SOURCES = \
     nix_fs.cpp      \
     win_fs.cpp      \
     local_file.cpp  \
-    client.cpp      \
+    remote_conn.cpp \
     remote_fs.cpp   \
     remote_file.cpp \
     asio_throw.cpp

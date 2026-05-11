@@ -23,7 +23,7 @@
 #include <windows.h>
 #include <shlwapi.h>
 #include "RemoteBrowserDlg.h"
-#include "../unifs/client.hpp"
+#include "../unifs/unifs.hpp"
 #include "resource.h"
 #include "strutil.h"
 #include <commctrl.h>
@@ -51,7 +51,7 @@ static BrowserData* GetData(HWND hDlg)
 
 // ---- public -----------------------------------------------------------------
 
-std::string RemoteBrowserDlg::DoModal(HWND hParent, UniFsClient* client)
+std::string RemoteBrowserDlg::DoModal(HWND hParent, UniFs* client)
 {
     m_client = client;
     m_cwd    = "/";
@@ -172,8 +172,8 @@ void RemoteBrowserDlg::Navigate(const std::string& dir)
     if (!bd) return;
 
     // Try to list the directory
-    std::unique_ptr<UniFs> fs = m_client->open_dir(dir.c_str());
-    if (!fs || fs->readdir() != 0) {
+    DirIter iter = m_client->readdir(dir.c_str());
+    if (!iter) {
         MessageBoxW(m_hwnd, L"Cannot open directory.", L"Error",
                     MB_OK | MB_ICONERROR);
         return;
@@ -182,8 +182,8 @@ void RemoteBrowserDlg::Navigate(const std::string& dir)
     m_cwd = dir;
     bd->entries.clear();
 
-    DirEntry* ent;
-    while ((ent = fs->next()) != nullptr) {
+    const DirEntry* ent;
+    while ((ent = iter.next()) != nullptr) {
         std::string n = ent->name();
         if (n == "." || n == "..") continue;
         Entry e;
@@ -191,7 +191,6 @@ void RemoteBrowserDlg::Navigate(const std::string& dir)
         e.is_dir = (ent->type() == DirEntry::DIR);
         bd->entries.push_back(e);
     }
-    fs->close();
 
     // Sort: dirs first, then files; within each group use natural sort
     // (StrCmpLogicalW) to match Explorer / FileList ordering.
