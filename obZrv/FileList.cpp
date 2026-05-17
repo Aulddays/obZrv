@@ -19,6 +19,7 @@
 // along with obZrv. If not, see <https://www.gnu.org/licenses/>.
 
 #include "pch.h"
+#include <shlwapi.h>
 #include "FileList.h"
 #include "Doc.h"
 
@@ -67,11 +68,11 @@ void FileList::setDoc(Doc *doc)
 	_doc = doc;
 }
 
-void FileList::refresh()
+void FileList::rebuild()
 {
 	if (!m_hList) return;
 
-	/* Temporarily suppress LVN_ITEMCHANGED while we rebuild */
+	_rebuilding = true;
 	ListView_DeleteAllItems(m_hList);
 
 	if (!_doc || _doc->getDirCount() == 0)
@@ -97,6 +98,99 @@ void FileList::refresh()
 	}
 
 	UpdateListSize();
+	_rebuilding = false;
+}
+
+void FileList::moveSelection(int oldIdx, int newIdx)
+{
+	if (!m_hList || !_doc) return;
+
+	_rebuilding = true;
+	if (oldIdx >= 0)
+		ListView_SetItemState(m_hList, oldIdx, 0, LVIS_SELECTED | LVIS_FOCUSED);
+
+	if (newIdx >= 0 && newIdx < _doc->getDirCount())
+	{
+		ListView_SetItemState(m_hList, newIdx,
+			LVIS_SELECTED | LVIS_FOCUSED,
+			LVIS_SELECTED | LVIS_FOCUSED);
+		ListView_EnsureVisible(m_hList, newIdx, FALSE);
+	}
+	_rebuilding = false;
+}
+
+void FileList::removeItem(int delIdx, int newSelIdx)
+{
+	if (!m_hList || !_doc) return;
+
+	_rebuilding = true;
+	ListView_DeleteItem(m_hList, delIdx);
+
+	if (newSelIdx >= 0 && newSelIdx < _doc->getDirCount())
+	{
+		ListView_SetItemState(m_hList, newSelIdx,
+			LVIS_SELECTED | LVIS_FOCUSED,
+			LVIS_SELECTED | LVIS_FOCUSED);
+		ListView_EnsureVisible(m_hList, newSelIdx, FALSE);
+	}
+	_rebuilding = false;
+}
+
+void FileList::smoothRebuild(const std::vector<std::wstring> &oldFiles)
+{
+	if (!m_hList || !_doc) return;
+
+	_rebuilding = true;
+
+	int newCount = _doc->getDirCount();
+	int oldCount = (int)oldFiles.size();
+
+	/* Two-pointer merge over two sorted lists (StrCmpLogicalW order).
+	 * lv_idx tracks the live row position in the ListView as we apply changes. */
+	int lv_idx = 0;
+	int oi = 0, ni = 0;
+	while (oi < oldCount || ni < newCount)
+	{
+		int cmp;
+		if      (oi >= oldCount) cmp =  1;   /* old exhausted: insert new */
+		else if (ni >= newCount) cmp = -1;   /* new exhausted: delete old */
+		else
+			cmp = StrCmpLogicalW(oldFiles[oi].c_str(), _doc->getDirFile(ni).c_str());
+
+		if (cmp == 0)
+		{
+			/* Same name in both lists: row stays, advance both pointers */
+			lv_idx++; oi++; ni++;
+		}
+		else if (cmp < 0)
+		{
+			/* Old item not present in new list: remove the row */
+			ListView_DeleteItem(m_hList, lv_idx);
+			oi++;   /* lv_idx stays -- next old item shifted up */
+		}
+		else
+		{
+			/* New item not present in old list: insert before current row */
+			LVITEM item  = {};
+			item.mask    = LVIF_TEXT;
+			item.iItem   = lv_idx;
+			item.pszText = const_cast<wchar_t *>(_doc->getDirFile(ni).c_str());
+			ListView_InsertItem(m_hList, &item);
+			lv_idx++; ni++;
+		}
+	}
+
+	/* Update selection to current file */
+	int idx = _doc->getDirIdx();
+	if (idx >= 0 && idx < newCount)
+	{
+		ListView_SetItemState(m_hList, idx,
+			LVIS_SELECTED | LVIS_FOCUSED,
+			LVIS_SELECTED | LVIS_FOCUSED);
+		ListView_EnsureVisible(m_hList, idx, FALSE);
+	}
+
+	_rebuilding = false;
 }
 
 void FileList::UpdateListSize()
@@ -149,7 +243,8 @@ LRESULT FileList::HandleMessage(UINT msg, WPARAM wp, LPARAM lp)
 			{
 				/* Open when selection changes via keyboard navigation */
 				NMLISTVIEW *nmlv = reinterpret_cast<NMLISTVIEW *>(lp);
-				if ((nmlv->uChanged & LVIF_STATE) &&
+				if (!_rebuilding &&
+					(nmlv->uChanged & LVIF_STATE) &&
 					(nmlv->uNewState & LVIS_SELECTED) &&
 					!(nmlv->uOldState & LVIS_SELECTED))
 				{

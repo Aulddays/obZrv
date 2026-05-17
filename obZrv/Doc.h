@@ -50,6 +50,11 @@ public:
 	// Returns 0 on success (file deleted), -1 on failure or user cancel.
 	int removeCurrentFile(bool shift);
 
+	// Rescan the current directory.  If the current file is still accessible,
+	// only the file list is updated (smooth merge, scroll preserved).
+	// If the current file has disappeared, the nearest remaining file is opened.
+	int refreshDir();
+
 	// Release current image and reset state
 	void close();
 

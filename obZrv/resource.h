@@ -48,6 +48,9 @@
 #define ID_FILE_DELETE       1024   /* Del:       move to recycle bin (local) / confirm+delete (remote) */
 #define ID_FILE_DELETE_PERM  1025   /* Shift+Del: permanent delete (local) / direct delete (remote) */
 
+/* Refresh: rescan directory; if current file gone, behave like delete */
+#define ID_FILE_REFRESH      1026
+
 /* Offset: command ID + STRING_TIP_OFFSET = short tooltip string */
 #define STRING_TIP_OFFSET  100
 

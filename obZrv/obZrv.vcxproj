@@ -210,6 +210,16 @@
       <Project>{EA95D58D-1B1D-4E16-AC83-8514C8EEEBF4}</Project>
     </ProjectReference>
   </ItemGroup>
+  <ItemGroup>
+    <Image Include="res\obZrv.ico" />
+    <Image Include="res\Toolbar.20.png" />
+    <Image Include="res\Toolbar.25.png" />
+    <Image Include="res\Toolbar.30.png" />
+    <Image Include="res\Toolbar.40.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <Manifest Include="res\obZrv.manifest" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

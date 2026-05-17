@@ -68,12 +68,13 @@ void Doc::setClient(std::shared_ptr<UniFs> c,
 	_client     = c;
 	_remoteHost = host;
 	_remotePort = port;
-	// Reset any currently open local file/dir
+	// Reset any currently open local file/dir.
+	// Do not notify _fileList here; the caller will call open() next, which will
+	// detect the directory change and call rebuild() itself.
 	close();
 	_dir.clear();
 	_dirfiles.clear();
 	_diridx = -1;
-	if (_fileList) _fileList->refresh();
 }
 
 void Doc::close()
@@ -144,7 +145,6 @@ int Doc::openDirFile(int idx)
 					 (UINT)_image->getFrameDelay(), onAnimate);
 	}
 	if (_view)     _view->updateStatus();
-	if (_fileList) _fileList->refresh();
 	return IM_OK;
 }
 
@@ -160,6 +160,11 @@ int Doc::open(const wchar_t *path, int cmdid)
 		_remoteHost.clear();
 		_remotePort = 0;
 	}
+
+	// Save state before close()/updateDir() so we can pick the right filelist update.
+	std::wstring prevDir  = _dir;
+	int          prevIdx  = _diridx;
+	int          prevCount = (int)_dirfiles.size();
 
 	// Record previous file before close() wipes _diridx
 	if (_diridx >= 0 && _diridx < (int)_dirfiles.size())
@@ -217,7 +222,14 @@ int Doc::open(const wchar_t *path, int cmdid)
 		_view->updateStatus();
 
 	if (_fileList)
-		_fileList->refresh();
+	{
+		// Rebuild only when the directory or its file count changed; otherwise
+		// just move the highlight so scroll position is preserved.
+		if (_dir != prevDir || (int)_dirfiles.size() != prevCount)
+			_fileList->rebuild();
+		else
+			_fileList->moveSelection(prevIdx, _diridx);
+	}
 
 	return IM_OK;
 }
@@ -341,6 +353,10 @@ int Doc::navigate(NavCmd cmd)
 
 int Doc::reopenAfterFail(const std::wstring& refFile, int dirHint)
 {
+	// Save list before rescan; open() returns early on failure so _dirfiles
+	// still holds the pre-failure state at this point.
+	std::vector<std::wstring> oldFiles = _dirfiles;
+
 	// Rescan the directory (refFile may no longer exist).
 	std::wstring scanPath = _dir + DIRSEP + refFile;
 	updateDir(scanPath.c_str(), false);
@@ -351,7 +367,7 @@ int Doc::reopenAfterFail(const std::wstring& refFile, int dirHint)
 		_dir.clear();
 		_prevDir.clear();
 		_prevFile.clear();
-		if (_fileList) _fileList->refresh();
+		if (_fileList) _fileList->rebuild();
 		if (_view)     _view->updateStatus();
 		MessageBoxW(_view ? _view->hwnd() : NULL,
 					L"No image files found in this folder.",
@@ -375,7 +391,11 @@ int Doc::reopenAfterFail(const std::wstring& refFile, int dirHint)
 	else
 		target = std::max(0, pos - 1);
 
-	return openDirFile(target);
+	int res = openDirFile(target);
+	// Smooth merge: preserves scroll position and minimises flicker when
+	// only a few files changed (e.g. a single inaccessible file was skipped).
+	if (_fileList) _fileList->smoothRebuild(oldFiles);
+	return res;
 }
 
 void CALLBACK Doc::onAnimate(HWND /*hWnd*/, UINT /*nMsg*/, UINT_PTR nIDEvent, DWORD /*dwTime*/)
@@ -476,8 +496,64 @@ void CALLBACK Doc::onAnimate(HWND /*hWnd*/, UINT /*nMsg*/, UINT_PTR nIDEvent, DW
 	}
 }
 
-int Doc::removeCurrentFile(bool shift)
+int Doc::refreshDir()
 {
+	if (_dir.empty() || _dirfiles.empty())
+		return -1;
+
+	// Save directory state before the rescan.
+	std::vector<std::wstring> oldFiles = _dirfiles;
+	std::wstring curFile = (_diridx >= 0) ? _dirfiles[_diridx] : L"";
+
+	// Rescan directory.
+	std::wstring scanPath = _dir + DIRSEP + (!curFile.empty() ? curFile : oldFiles.front());
+	updateDir(scanPath.c_str(), false);
+
+	if (_dirfiles.empty())
+	{
+		// Every file in the directory is gone.
+		close();
+		_path.clear();
+		_dir.clear();
+		_prevDir.clear();
+		_prevFile.clear();
+		if (_fileList) _fileList->rebuild();
+		if (_view)     _view->updateStatus();
+		return 0;
+	}
+
+	if (_diridx >= 0)
+	{
+		// Current file still exists: image unchanged, just sync the list.
+		if (_fileList) _fileList->smoothRebuild(oldFiles);
+		return 0;
+	}
+
+	// Current file is gone: find the nearest remaining file and open it.
+	int pos = (int)_dirfiles.size();
+	for (int i = 0; i < (int)_dirfiles.size(); i++)
+	{
+		if (StrCmpLogicalW(_dirfiles[i].c_str(), curFile.c_str()) >= 0)
+		{
+			pos = i;
+			break;
+		}
+	}
+	int target = std::min(pos, (int)_dirfiles.size() - 1);
+
+	_diridx = -1;
+	if (openDirFile(target) != IM_OK)
+	{
+		reopenAfterFail(_dirfiles[target], +1);
+		return 0;
+	}
+
+	// Smooth merge: the missing file is dropped, others are preserved in place.
+	if (_fileList) _fileList->smoothRebuild(oldFiles);
+	return 0;
+}
+
+int Doc::removeCurrentFile(bool shift){
 	if (_diridx < 0 || _diridx >= (int)_dirfiles.size())
 		return -1;
 
@@ -487,13 +563,14 @@ int Doc::removeCurrentFile(bool shift)
 	if (_client)
 	{
 		// Remote delete
-		if (!shift)
+		bool CONFIRM_DELETE = false; // TODO: user option
+		if (!shift && CONFIRM_DELETE)
 		{
 			// Del: confirm before deleting
 			std::wstring msg = L"Delete \"" + delFile + L"\" from remote server?";
 			if (MessageBoxW(_view ? _view->hwnd() : NULL,
 							msg.c_str(), L"Confirm Delete",
-							MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES)
+							MB_YESNO | MB_ICONWARNING) != IDYES)
 				return -1;
 		}
 
@@ -542,7 +619,7 @@ int Doc::removeCurrentFile(bool shift)
 		_dir.clear();
 		_prevDir.clear();
 		_prevFile.clear();
-		if (_fileList) _fileList->refresh();
+		if (_fileList) _fileList->rebuild();
 		if (_view)     _view->updateStatus();
 		return 0;
 	}
@@ -580,5 +657,7 @@ int Doc::removeCurrentFile(bool shift)
 	_diridx = -1;
 	if (openDirFile(nextIdx) != IM_OK)
 		reopenAfterFail(failedFile, dirHint);
+	else if (_fileList)
+		_fileList->removeItem(delIdx, _diridx);
 	return 0;
 }

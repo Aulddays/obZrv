@@ -21,6 +21,8 @@
 #pragma once
 #include <windows.h>
 #include <commctrl.h>
+#include <vector>
+#include <string>
 #include "WndBase.h"
 
 #define FILELIST_CLASS TEXT("obzFileList")
@@ -40,15 +42,33 @@ public:
 	/* Bind to a Doc; must be called before refresh(). */
 	void setDoc(Doc *doc);
 
-	/* Repopulate the ListView from doc's current directory/index. */
-	void refresh();
+	/* Full rebuild: repopulate from doc's current directory/index.
+	 * Use when the directory itself changes (new folder, new remote connection). */
+	void rebuild();
+
+	/* Selection-only update: swap the highlighted row without rebuilding.
+	 * Use when navigating within the same directory. */
+	void moveSelection(int oldIdx, int newIdx);
+
+	/* Remove one row and update the highlight.
+	 * Use after a single file has been deleted from the current directory. */
+	void removeItem(int delIdx, int newSelIdx);
+
+	/* Smooth merge update: apply minimal inserts/deletes to transition from
+	 * oldFiles to the current doc directory.  Preserves scroll position.
+	 * Use after a directory rescan while the panel is still showing the old list. */
+	void smoothRebuild(const std::vector<std::wstring> &oldFiles);
+
+	/* Alias for rebuild(); kept for compatibility. */
+	void refresh() { rebuild(); }
 
 protected:
 	LRESULT HandleMessage(UINT msg, WPARAM wp, LPARAM lp) override;
 
 private:
-	Doc  *_doc    = NULL;
-	HWND  m_hList = NULL;   /* child ListView control */
+	Doc  *_doc       = NULL;
+	HWND  m_hList    = NULL;   /* child ListView control */
+	bool  _rebuilding = false; /* suppress LVN_ITEMCHANGED during batch updates */
 
 	void UpdateListSize();
 	void OnActivateItem(int idx);

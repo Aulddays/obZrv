@@ -289,6 +289,10 @@ void MainWnd::OnCommand(UINT id)
 		m_doc.removeCurrentFile(true);
 		break;
 
+	case ID_FILE_REFRESH:
+		m_doc.refreshDir();
+		break;
+
 	case ID_VIEW_ZOOMIN:
 		m_mainView.imageView().zoom(1);
 		break;

@@ -1,7 +1,7 @@
 # Produce toolbar resource files from ToolbarSrc/*.128.png
 
 VARS := 20 25 30 40
-SRCS := open prev next zoomin zoomto zoomout zoomlock zoomrem zoom
+SRCS := open prev next zoomin zoomto zoomout zoomlock zoomrem zoom filelist openremote refresh
 
 .PHONY: all clean
 all: $(foreach v,$(VARS),Toolbar.$(v).png) Toolbar.bmp

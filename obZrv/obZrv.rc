@@ -28,6 +28,8 @@ BEGIN
         MENUITEM "&Delete\tDel",            ID_FILE_DELETE
         MENUITEM "Delete (no recycle)\tShift+Del", ID_FILE_DELETE_PERM
         MENUITEM SEPARATOR
+        MENUITEM "&Refresh\tF5",            ID_FILE_REFRESH
+        MENUITEM SEPARATOR
         MENUITEM "E&xit\tAlt+F4",           ID_FILE_EXIT
     END
     POPUP "&Edit"
@@ -85,6 +87,7 @@ BEGIN
     ID_VIEW_ZOOM        "Zoom"
     ID_VIEW_FILELIST    "Show or hide the file list panel"
     ID_HELP_ABOUT       "Show information about obZrv"
+    ID_FILE_REFRESH     "Rescan directory; open next file if current is gone"
 END
 
 /* Toolbar tooltip labels - IDs are command ID + STRING_TIP_OFFSET */
@@ -102,6 +105,7 @@ BEGIN
     ID_VIEW_ZOOM        + 100  "Zoom"
     ID_VIEW_FILELIST    + 100  "File List"
     ID_HELP_ABOUT       + 100  "About"
+    ID_FILE_REFRESH     + 100  "Refresh"
 END
 
 /* Dialog: Connect to remote server */
@@ -136,10 +140,12 @@ IDR_MAINMENU ACCELERATORS
 BEGIN
     VK_DELETE,   ID_FILE_DELETE,      VIRTKEY
     VK_DELETE,   ID_FILE_DELETE_PERM, VIRTKEY, SHIFT
+    VK_F5,       ID_FILE_REFRESH,     VIRTKEY
     VK_LEFT,     ID_FILE_PREV,        VIRTKEY
     VK_PRIOR,    ID_FILE_PREV,        VIRTKEY
     VK_RIGHT,    ID_FILE_NEXT,        VIRTKEY
     VK_NEXT,     ID_FILE_NEXT,        VIRTKEY
+    VK_ESCAPE,   ID_FILE_EXIT,        VIRTKEY
     VK_ADD,      ID_VIEW_ZOOMIN,      VIRTKEY
     "=",         ID_VIEW_ZOOMIN,      ASCII
     VK_SUBTRACT, ID_VIEW_ZOOMOUT,     VIRTKEY
