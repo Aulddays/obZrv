@@ -66,6 +66,9 @@ private:
 	void OnMenuSelect(UINT id, UINT flags);
 	void OnNotify(LPARAM lp);
 	void OnDpiChanged(const RECT *pRect);
+	bool LoadWindowPlacement(RECT *rc, bool *maximized);
+	void SaveWindowPlacement();
+	RECT ClampWindowRectToNearestWorkArea(const RECT &rc);
 	void UpdateButtonStates();
 	void ShowZoomModeMenu();
 	void UpdateMenuIcons();    /* set/refresh menu item bitmaps from toolbar image list */

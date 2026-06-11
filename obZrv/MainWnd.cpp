@@ -22,6 +22,7 @@
 #include <winsock2.h>  // must precede windows.h when using asio
 #include "MainWnd.h"
 #include "../unifs/remote_fs.hpp"
+#include "../unifs/local_fs.hpp"
 #include "resource.h"
 #include "dpi.h"
 #include "config.h"
@@ -66,16 +67,23 @@ bool MainWnd::Create(HINSTANCE hInst, int nShow)
 	if (!RegisterClassEx(&wc))
 		return false;
 
+	RECT rc = {};
+	bool maximized = false;
+	bool hasPlacement = LoadWindowPlacement(&rc, &maximized);
+
 	HWND hwnd = CreateWindowEx(
 		0, MAINWND_CLASS, TEXT("obZrv"),
 		WS_OVERLAPPEDWINDOW,
-		CW_USEDEFAULT, CW_USEDEFAULT, 800, 600,
+		hasPlacement ? rc.left : CW_USEDEFAULT,
+		hasPlacement ? rc.top : CW_USEDEFAULT,
+		hasPlacement ? rc.right - rc.left : 800,
+		hasPlacement ? rc.bottom - rc.top : 600,
 		NULL, NULL, hInst, this);
 
 	if (!hwnd)
 		return false;
 
-	ShowWindow(hwnd, nShow);
+	ShowWindow(hwnd, maximized ? SW_SHOWMAXIMIZED : nShow);
 	UpdateWindow(hwnd);
 	return true;
 }
@@ -132,8 +140,7 @@ void MainWnd::OpenFile(const wchar_t *path)
 {
 	// Normalise to Unix-style path (/c/dir/file) so all downstream code
 	// (Doc, UniFs, UniFile) works with a single path convention.
-	std::wstring upath = win_path_to_unix(path);
-	m_doc.open(upath.c_str());
+	m_doc.open(std::shared_ptr<UniFs>(LocalFs::open()), to_unipath(path).c_str(), -1, true, INT_MIN);
 	// Ensure ImageView gets focus for keyboard navigation
 	SetFocus(m_mainView.imageView().hwnd());
 }
@@ -256,13 +263,8 @@ void MainWnd::OnCommand(UINT id)
 			RemoteBrowserDlg browser;
 			std::string remotePath = browser.DoModal(m_hwnd, client.get());
 			if (!remotePath.empty()) {
-				m_doc.setClient(std::shared_ptr<UniFs>(client.release()),
-								host, port);
-				// Build remote:// URL for Doc::open
-				std::string url = "remote://" + host + ":" +
-								  std::to_string(port) + remotePath;
-				std::wstring wurl = utf8_to_wstr(url.c_str());
-				m_doc.open(wurl.c_str());
+				m_doc.open(std::shared_ptr<UniFs>(client.release()),
+						   remotePath.c_str(), -1, true, INT_MIN);
 				SetFocus(m_mainView.imageView().hwnd());
 			}
 		}
@@ -372,7 +374,97 @@ void MainWnd::OnNotify(LPARAM lp)
 
 void MainWnd::OnDestroy()
 {
+	SaveWindowPlacement();
 	PostQuitMessage(0);
+}
+
+bool MainWnd::LoadWindowPlacement(RECT *rc, bool *maximized)
+{
+	std::wstring placement = Config::instance().getStr(L"Window", L"Placement");
+	if (placement.empty())
+		return false;
+
+	RECT saved = {};
+	int maxFlag = 0;
+	if (swscanf(placement.c_str(), L"%ld,%ld,%ld,%ld,%d",
+			   &saved.left, &saved.top, &saved.right, &saved.bottom,
+			   &maxFlag) != 5)
+		return false;
+	if (saved.right <= saved.left || saved.bottom <= saved.top)
+		return false;
+
+	*rc = ClampWindowRectToNearestWorkArea(saved);
+	*maximized = maxFlag != 0;
+	return true;
+}
+
+void MainWnd::SaveWindowPlacement()
+{
+	WINDOWPLACEMENT wp = {};
+	wp.length = sizeof(wp);
+	if (!GetWindowPlacement(m_hwnd, &wp))
+		return;
+
+	wchar_t placement[128];
+	_snwprintf(placement, 128, L"%ld,%ld,%ld,%ld,%d",
+			  wp.rcNormalPosition.left,
+			  wp.rcNormalPosition.top,
+			  wp.rcNormalPosition.right,
+			  wp.rcNormalPosition.bottom,
+			  wp.showCmd == SW_SHOWMAXIMIZED ? 1 : 0);
+	Config::instance().setStr(L"Window", L"Placement", placement);
+}
+
+RECT MainWnd::ClampWindowRectToNearestWorkArea(const RECT &rc)
+{
+	RECT work = {};
+	SystemParametersInfo(SPI_GETWORKAREA, 0, &work, 0);
+
+	MONITORINFO minfo = {};
+	minfo.cbSize = sizeof(minfo);
+	HMONITOR hmon = MonitorFromRect(&rc, MONITOR_DEFAULTTONEAREST);
+	if (hmon && GetMonitorInfo(hmon, &minfo))
+		work = minfo.rcWork;
+
+	if (work.right <= work.left || work.bottom <= work.top) {
+		work.left = 0;
+		work.top = 0;
+		work.right = GetSystemMetrics(SM_CXSCREEN);
+		work.bottom = GetSystemMetrics(SM_CYSCREEN);
+	}
+
+	int workW = work.right - work.left;
+	int workH = work.bottom - work.top;
+	int width = rc.right - rc.left;
+	int height = rc.bottom - rc.top;
+
+	if (width < Dpi::Scale(320)) width = Dpi::Scale(320);
+	if (height < Dpi::Scale(240)) height = Dpi::Scale(240);
+	if (width > workW) width = workW;
+	if (height > workH) height = workH;
+
+	RECT out = rc;
+	out.right = out.left + width;
+	out.bottom = out.top + height;
+
+	if (out.right > work.right) {
+		out.left = work.right - width;
+		out.right = work.right;
+	}
+	if (out.left < work.left) {
+		out.left = work.left;
+		out.right = work.left + width;
+	}
+	if (out.bottom > work.bottom) {
+		out.top = work.bottom - height;
+		out.bottom = work.bottom;
+	}
+	if (out.top < work.top) {
+		out.top = work.top;
+		out.bottom = work.top + height;
+	}
+
+	return out;
 }
 
 /* Respond to monitor DPI changes (Windows 8.1+, PerMonitorV2 on Win10+).

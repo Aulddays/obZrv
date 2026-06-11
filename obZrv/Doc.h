@@ -26,6 +26,7 @@
 #include <string>
 #include <memory>
 #include "Codec.h"
+#include "strutil.h"
 
 class ImageView;    // forward declaration
 class FileList;     // forward declaration
@@ -41,8 +42,15 @@ public:
 
 	static int initCodec();
 
-	// Open an image file; returns IM_OK (0) on success
-	int open(const wchar_t *path, int cmdid = -1);
+	// Open an image file.
+	// unifs: filesystem to use; if null, reuse the current _unifs.
+	// forceScanDir=true: always rescan the directory after opening.
+	// forceScanDir=false: rescan only on failure.
+	// dirHint: INT_MIN = no fallback on failure (return error immediately);
+	//   +1 = prefer file after target; -1 = prefer file before target.
+	// Returns IM_OK on success.
+	int open(std::shared_ptr<UniFs> unifs, const char *path, int cmdid = -1,
+			 bool forceScanDir = true, int dirHint = INT_MIN);
 
 	// Delete the currently displayed file and open the next one.
 	// confirm=true: show confirmation dialog for remote files.
@@ -59,10 +67,7 @@ public:
 	void close();
 
 	Image *getImage() const { return _image; }
-	const std::wstring &getPath() const { return _path; }
-
-	// Open a file by index in the current directory listing
-	int openDirFile(int idx);
+	const std::string &getPath() const { return _path; }
 
 	// Directory navigation
 	enum NavCmd { NAV_FIRST, NAV_LAST, NAV_PREV, NAV_NEXT };
@@ -71,7 +76,7 @@ public:
 	int getDirIdx()   const { return _diridx; }
 	int getDirCount() const { return (int)_dirfiles.size(); }
 	const std::wstring &getDirFile(int i) const { return _dirfiles[i]; }
-	const std::wstring &getDir()   const { return _dir; }
+	const std::string  &getDir()   const { return _dir; }
 
 	// Background colour (global, stored as 0x00RRGGBB)
 	static uint32_t getBgColor() { return _bgColor; }
@@ -83,14 +88,6 @@ public:
 	// Bind the file list panel (optional; refreshed on every open)
 	void setFileList(FileList *fl) { _fileList = fl; }
 
-	// Remote connection management
-	void setClient(std::shared_ptr<UniFs> c,
-				   const std::string &host, uint16_t port);
-	bool isRemote() const { return _client != nullptr; }
-	UniFs *client() const { return _client.get(); }
-	const std::string &remoteHost() const { return _remoteHost; }
-	uint16_t remotePort() const { return _remotePort; }
-
 	// Timer callback for animated images
 	static void CALLBACK onAnimate(HWND hWnd, UINT nMsg, UINT_PTR nIDEvent, DWORD dwTime);
 
@@ -98,13 +95,11 @@ private:
 	ImageView      *_view      = NULL;
 	FileList       *_fileList  = NULL;
 	Image          *_image     = NULL;
-	std::wstring    _path;
+	std::string     _path;
 	static uint32_t _bgColor;
 
-	// Remote connection (nullptr = local mode)
-	std::shared_ptr<UniFs>       _client;
-	std::string                  _remoteHost;
-	uint16_t                     _remotePort = 0;
+	// Active filesystem (local or remote)
+	std::shared_ptr<UniFs>    _unifs;
 
 	// Animation state (mirrored from ZDoc)
 	bool    _animated    = false;
@@ -114,19 +109,15 @@ private:
 	int64_t _totaldelay  = 0;   // cumulative delay of frames shown so far
 
 	// Directory state
-	std::wstring              _dir;
+	std::string               _dir;
 	std::vector<std::wstring> _dirfiles;
 	int                       _diridx = -1;
 
 	// Previously shown file (for post-delete navigation direction)
-	std::wstring              _prevDir;
+	std::wstring              _curFile;
 	std::wstring              _prevFile;
 
 	// update _dir/_dirfiles; if preservelast==true and file is already in
 	// current _dir, skip the re-scan
-	int updateDir(const wchar_t *filepath, bool preservelast = false);
-
-	// After a failed open, rescan dir and open the nearest file to refFile.
-	// dirHint: +1 = prefer file after refFile, -1 = prefer file before.
-	int reopenAfterFail(const std::wstring& refFile, int dirHint);
+	int updateDir(UniFs *fs, const char *filepath, bool preservelast = false);
 };

@@ -71,5 +71,5 @@ private:
 	bool  _rebuilding = false; /* suppress LVN_ITEMCHANGED during batch updates */
 
 	void UpdateListSize();
-	void OnActivateItem(int idx);
+	void OnActivateItem(int idx, bool notify = false);
 };

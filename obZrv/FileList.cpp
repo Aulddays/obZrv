@@ -23,6 +23,19 @@
 #include "FileList.h"
 #include "Doc.h"
 
+/* Subclass proc for the ListView: grab focus on mouse-down before any
+ * notification (LVN_ITEMCHANGED) fires, so a W2I-mode window resize
+ * triggered by the resulting file open cannot steal focus back. */
+static LRESULT CALLBACK ListViewProc(HWND hWnd, UINT msg, WPARAM wp, LPARAM lp,
+									 UINT_PTR /*uIdSubclass*/, DWORD_PTR /*dwRefData*/)
+{
+	if (msg == WM_LBUTTONDOWN || msg == WM_RBUTTONDOWN || msg == WM_MBUTTONDOWN)
+		SetFocus(hWnd);
+	if (msg == WM_NCDESTROY)
+		RemoveWindowSubclass(hWnd, ListViewProc, 0);
+	return DefSubclassProc(hWnd, msg, wp, lp);
+}
+
 bool FileList::Create(HWND hParent, HINSTANCE hInst)
 {
 	WNDCLASS wc      = {};
@@ -59,6 +72,8 @@ bool FileList::Create(HWND hParent, HINSTANCE hInst)
 	col.mask = LVCF_WIDTH;
 	col.cx   = 150;
 	ListView_InsertColumn(m_hList, 0, &col);
+
+	SetWindowSubclass(m_hList, ListViewProc, 0, 0);
 
 	return true;
 }
@@ -138,7 +153,8 @@ void FileList::removeItem(int delIdx, int newSelIdx)
 
 void FileList::smoothRebuild(const std::vector<std::wstring> &oldFiles)
 {
-	if (!m_hList || !_doc) return;
+	if (!m_hList || !_doc)
+		return;
 
 	_rebuilding = true;
 
@@ -209,15 +225,18 @@ void FileList::UpdateListSize()
 		ListView_SetColumnWidth(m_hList, 0, lrc.right);
 }
 
-void FileList::OnActivateItem(int idx)
+void FileList::OnActivateItem(int idx, bool notify)
 {
 	if (!_doc || idx < 0 || idx >= _doc->getDirCount())
 		return;
-
-	std::wstring path = _doc->getDir() + L'/' + _doc->getDirFile(idx);
+	std::string path = _doc->getDir() + "/" + wstr_to_utf8(_doc->getDirFile(idx).c_str());
 	if (path == _doc->getPath())
 		return;
-	_doc->open(path.c_str());
+	std::string targetPath = path;
+	_doc->open(nullptr, path.c_str(), -1, false, +1);
+	if (notify && _doc->getPath() != targetPath)
+		MessageBoxW(m_hwnd, (L"Cannot open: " + utf8_to_wstr(targetPath.c_str())).c_str(),
+					L"Error", MB_OK | MB_ICONWARNING);
 }
 
 LRESULT FileList::HandleMessage(UINT msg, WPARAM wp, LPARAM lp)
@@ -233,22 +252,17 @@ LRESULT FileList::HandleMessage(UINT msg, WPARAM wp, LPARAM lp)
 		NMHDR *hdr = reinterpret_cast<NMHDR *>(lp);
 		if (hdr->hwndFrom == m_hList)
 		{
-			if (hdr->code == NM_CLICK)
-			{
-				NMITEMACTIVATE *nm = reinterpret_cast<NMITEMACTIVATE *>(lp);
-				OnActivateItem(nm->iItem);
-				return 0;
-			}
 			if (hdr->code == LVN_ITEMCHANGED)
 			{
-				/* Open when selection changes via keyboard navigation */
+				/* Open when selection changes via keyboard or mouse navigation */
 				NMLISTVIEW *nmlv = reinterpret_cast<NMLISTVIEW *>(lp);
 				if (!_rebuilding &&
 					(nmlv->uChanged & LVIF_STATE) &&
 					(nmlv->uNewState & LVIS_SELECTED) &&
 					!(nmlv->uOldState & LVIS_SELECTED))
 				{
-					OnActivateItem(nmlv->iItem);
+					bool byMouse = (GetKeyState(VK_LBUTTON) & 0x8000) != 0;
+					OnActivateItem(nmlv->iItem, byMouse);
 					return 0;
 				}
 			}

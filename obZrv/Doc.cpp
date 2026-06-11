@@ -62,21 +62,6 @@ Doc::~Doc()
 	close();
 }
 
-void Doc::setClient(std::shared_ptr<UniFs> c,
-					const std::string &host, uint16_t port)
-{
-	_client     = c;
-	_remoteHost = host;
-	_remotePort = port;
-	// Reset any currently open local file/dir.
-	// Do not notify _fileList here; the caller will call open() next, which will
-	// detect the directory change and call rebuild() itself.
-	close();
-	_dir.clear();
-	_dirfiles.clear();
-	_diridx = -1;
-}
-
 void Doc::close()
 {
 	if (_animated && _view)
@@ -85,201 +70,170 @@ void Doc::close()
 	delete _image;
 	_image = NULL;
 	_diridx = -1;
+	_unifs.reset();
 }
 
-int Doc::openDirFile(int idx)
+
+int Doc::open(std::shared_ptr<UniFs> unifs, const char *path, int cmdid, bool forceScanDir, int dirHint)
 {
-	if (idx < 0 || idx >= (int)_dirfiles.size())
-		return IM_FAIL;
+	if (!unifs)	// reuse the same ori fs
+		unifs = _unifs;
+	bool scanned = false;
+	std::string prevDir = _dir;
+	int prevIdx = _diridx;
+	std::vector<std::wstring> oldFiles;
 
-	// Open UniFile directly from the known directory + filename,
-	// without constructing a path string.
-	std::unique_ptr<UniFile> uf;
-	std::string filename = wstr_to_utf8(_dirfiles[idx].c_str());
-	if (_client) {
-		std::string dir_utf8 = wstr_to_utf8(_dir.c_str());
-		size_t slash = dir_utf8.find('/', 9); // skip "remote://"
-		std::string remoteDir = (slash != std::string::npos)
-								? dir_utf8.substr(slash) : std::string("/");
-		uf = _client->openfile((remoteDir + "/" + filename).c_str(), "rb");
-	} else {
-		std::string dir_utf8 = wstr_to_utf8(_dir.c_str());
-		std::unique_ptr<UniFs> localfs = LocalFs::open();
-		uf = localfs->openfile((dir_utf8 + "/" + filename).c_str(), "rb");
-	}
-	if (!uf)
-		return IM_READFILE_ERR;
+	// Extract filename from path.
+	const char *sep = strrchr(path, '/');
+	std::string targetFile = sep ? std::string(sep + 1) : std::string(path);
+	std::wstring targetFileW = utf8_to_wstr(targetFile.c_str());
 
-	if (_animated && _view)
-		KillTimer(_view->hwnd(), (UINT_PTR)this);
-	_animated = false;
-	// Record previous file before overwriting state
-	if (_diridx >= 0 && _diridx < (int)_dirfiles.size())
+	// --- Step 1: obtain a readable UniFile ---
+	auto uf = unifs->openfile(path, "rb");
+	if (!uf)	// open failed, try fallback
 	{
-		_prevDir  = _dir;
-		_prevFile = _dirfiles[_diridx];
-	}
-	close();
-	_diridx = idx; // restore after close() reset it
+		if (dirHint == INT_MIN)	// fallback disabled
+			return IM_READFILE_ERR;
 
-	int res = IM_FAIL;
-	const wchar_t *ext = wcsrchr(_dirfiles[idx].c_str(), L'.');
-	if (ext && _wcsicmp(ext, L".webp") == 0)
-		res = webpCodec.open(uf.get(), &_image, _bgColor);
-	if (res != IM_OK)
-		res = gdiplusCodec.open(uf.get(), &_image, _bgColor);
-	if (res != IM_OK)
-		return res;
+		// Fallback: rescan and find nearest readable file.
+		oldFiles = _dirfiles;
+		updateDir(unifs.get(), path, false);
+		scanned = true;
 
-	_path = _dir + L'/' + _dirfiles[idx];
-
-	if (_view)    _view->onFileOpened(-1);
-	_curframe  = 0;
-	_curloop   = 0;
-	_animated  = _image->isAnim();
-	if (_animated) {
-		_tmstart    = GetTickCount();
-		_totaldelay = _image->getFrameDelay();
-		if (_view)
-			SetTimer(_view->hwnd(), (UINT_PTR)this,
-					 (UINT)_image->getFrameDelay(), onAnimate);
-	}
-	if (_view)     _view->updateStatus();
-	return IM_OK;
-}
-
-int Doc::open(const wchar_t *path, int cmdid)
-{
-	if (_animated && _view)
-		KillTimer(_view->hwnd(), (UINT_PTR)this);
-	_animated = false;
-
-	// Drop remote connection when opening a local file.
-	if (_client && wcsncmp(path, L"remote://", 9) != 0) {
-		_client.reset();
-		_remoteHost.clear();
-		_remotePort = 0;
-	}
-
-	// Save state before close()/updateDir() so we can pick the right filelist update.
-	std::wstring prevDir  = _dir;
-	int          prevIdx  = _diridx;
-	int          prevCount = (int)_dirfiles.size();
-
-	// Record previous file before close() wipes _diridx
-	if (_diridx >= 0 && _diridx < (int)_dirfiles.size())
-	{
-		_prevDir  = _dir;
-		_prevFile = _dirfiles[_diridx];
-	}
-	close();
-
-	// Open a UniFile: remote path via client, local path via open_file().
-	std::unique_ptr<UniFile> uf;
-	const std::wstring wpath(path);
-	if (_client && wpath.compare(0, 9, L"remote://") == 0) {
-		size_t slash = wpath.find(L'/', 9);
-		if (slash != std::wstring::npos) {
-			std::string filePath = wstr_to_utf8(wpath.c_str() + slash);
-			uf = _client->openfile(filePath.c_str(), "rb");
+		if (_dirfiles.empty())
+		{
+			close();
+			_path.clear(); _dir.clear(); _prevFile.clear(); _curFile.clear();
+			if (_fileList) _fileList->rebuild();
+			if (_view)     _view->updateStatus();
+			MessageBoxW(_view ? _view->hwnd() : NULL,
+						L"No image files found in this folder.",
+						L"Info", MB_OK | MB_ICONINFORMATION);
+			return IM_FAIL;
 		}
-	} else {
-		std::string utf8 = wstr_to_utf8(win_path_to_unix(path).c_str());
-		std::unique_ptr<UniFs> localfs = LocalFs::open();
-		uf = localfs->openfile(utf8.c_str(), "rb");
+
+		// Find insertion point of targetFile in the new sorted list.
+		int pos = (int)_dirfiles.size();
+		for (int i = 0; i < (int)_dirfiles.size(); i++)
+		{
+			if (StrCmpLogicalW(_dirfiles[i].c_str(), targetFileW.c_str()) >= 0)
+			{
+				pos = i;
+				break;
+			}
+		}
+		int target = (dirHint >= 0)
+			? std::min(pos, (int)_dirfiles.size() - 1)
+			: std::max(0, pos - 1);
+		targetFileW = _dirfiles[target];
+		targetFile  = wstr_to_utf8(targetFileW.c_str());
+		_diridx = target;
+
+		std::string newPath = _dir + "/" + targetFile;
+		uf = unifs->openfile(newPath.c_str(), "rb");
+		if (!uf)	// still failed, give up
+		{
+			if (_fileList)
+				_fileList->smoothRebuild(oldFiles);
+			return IM_FAIL;
+		}
 	}
-	if (!uf)
-		return IM_READFILE_ERR;
 
-	int res = IM_FAIL;
-	/* Try WebP first (extension-based), fall back to GDI+ */
-	const wchar_t *ext = wcsrchr(path, L'.');
-	if (ext && _wcsicmp(ext, L".webp") == 0)
-		res = webpCodec.open(uf.get(), &_image, _bgColor);
-	if (res != IM_OK)
-		res = gdiplusCodec.open(uf.get(), &_image, _bgColor);
-	if (res != IM_OK)
-		return res;
+	// --- Step 2: close current file, decode & show ---
+	close();  // resets _unifs
+	_unifs = unifs;
 
-	_path = path;
-	updateDir(path, false);
-
-	if (_view)
-		_view->onFileOpened(cmdid);
-
-	_curframe  = 0;
-	_curloop   = 0;
-	_animated  = _image->isAnim();
-	if (_animated)
+	std::string fullPath = scanned ? (_dir + "/" + targetFile) : std::string(path);
 	{
-		_tmstart    = GetTickCount();
-		_totaldelay = _image->getFrameDelay();
-		if (_view)
-			SetTimer(_view->hwnd(), (UINT_PTR)this, (UINT)_image->getFrameDelay(), onAnimate);
+		int res = IM_FAIL;
+		const char *dot = strrchr(fullPath.c_str(), '.');
+		if (dot && _stricmp(dot, ".webp") == 0)
+			res = webpCodec.open(uf.get(), &_image, _bgColor);
+		if (res != IM_OK)
+			res = gdiplusCodec.open(uf.get(), &_image, _bgColor);
+		if (res == IM_OK)
+		{
+			_path = fullPath;
+			if (_view)
+				_view->onFileOpened(cmdid);
+			_curframe  = 0;
+			_curloop   = 0;
+			_animated  = _image->isAnim();
+			if (_animated)
+			{
+				_tmstart    = GetTickCount();
+				_totaldelay = _image->getFrameDelay();
+				if (_view)
+					SetTimer(_view->hwnd(), (UINT_PTR)this, (UINT)_image->getFrameDelay(), onAnimate);
+			}
+			if (_view)
+				_view->updateStatus();
+		}
 	}
 
-	if (_view)
-		_view->updateStatus();
+	// --- Step 3: rescan directory / update _diridx ---
+	if (forceScanDir && !scanned)	// rescan
+	{
+		oldFiles = _dirfiles;
+		updateDir(_unifs.get(), path, false);
+		scanned = true;
+	}
+	else	// just update idx
+	{
+		for (int i = 0; i < (int)_dirfiles.size(); i++)
+		{
+			if (_dirfiles[i] == targetFileW)
+			{
+				_diridx = i;
+				break;
+			}
+		}
+	}
 
+	// --- Step 4: update filelist ---
 	if (_fileList)
 	{
-		// Rebuild only when the directory or its file count changed; otherwise
-		// just move the highlight so scroll position is preserved.
-		if (_dir != prevDir || (int)_dirfiles.size() != prevCount)
-			_fileList->rebuild();
-		else
+		if (!scanned)
 			_fileList->moveSelection(prevIdx, _diridx);
+		else if (_dir == prevDir)
+			_fileList->smoothRebuild(oldFiles);
+		else
+			_fileList->rebuild();
 	}
+
+	// Rotate _curFile -> _prevFile (clear _prevFile on directory change).
+	_prevFile = (_dir == prevDir) ? _curFile : std::wstring();
+	_curFile  = targetFileW;
 
 	return IM_OK;
 }
 
 // update dirfiles; if preservelast==true and the file is already in current
 // _dir, skip the expensive directory re-scan
-int Doc::updateDir(const wchar_t *filepath, bool preservelast)
+int Doc::updateDir(UniFs *fs, const char *filepath, bool preservelast)
 {
 	// split filepath into directory and filename
-	std::wstring path;
-	std::wstring filename;
-	const wchar_t *pos = wcsrchr(filepath, DIRSEP);
-	if (pos)
-	{
-		path.assign(filepath, pos);
-		filename.assign(pos + 1);
-	}
-	else
-	{
-		path = L".";
-		filename = filepath;
-	}
+	const char *pos = strrchr(filepath, '/');
+	std::string dir      = pos ? std::string(filepath, pos) : ".";
+	std::string filename = pos ? std::string(pos + 1) : std::string(filepath);
 
-	if (_dir == path && preservelast)
+	if (_dir == dir && preservelast)
 		return 0;
 
-	std::transform(filename.begin(), filename.end(), filename.begin(), towlower);
+	std::wstring filenameW = utf8_to_wstr(filename.c_str());
+	std::transform(filenameW.begin(), filenameW.end(), filenameW.begin(), towlower);
 
-	_dir = L"";
+	_dir = "";
 	_dirfiles.clear();
 	_diridx = -1;
 
 	if (filename.empty())
 		return 0;
 
-	// Enumerate files in directory via UniFs (accepts Unix-style path).
-	// For remote paths use the client; for local paths use the local UniFs.
-	std::string dir_utf8 = wstr_to_utf8(path.c_str());
+	// Enumerate files in directory via the provided UniFs.
 	DirIter iter;
-	if (_client && dir_utf8.compare(0, 9, "remote://") == 0) {
-		// Extract /dir_path part from "remote://host:port/dir_path"
-		size_t slash = dir_utf8.find('/', 9);
-		std::string remoteDir = (slash != std::string::npos)
-								? dir_utf8.substr(slash)
-								: std::string("/");
-		iter = _client->readdir(remoteDir.c_str());
-	} else {
-		std::unique_ptr<UniFs> localfs = LocalFs::open();
-		iter = localfs->readdir(dir_utf8.c_str());
-	}
+	if (fs)
+		iter = fs->readdir(dir.c_str());
 	if (!iter)
 		return -1;
 
@@ -309,12 +263,12 @@ int Doc::updateDir(const wchar_t *filepath, bool preservelast)
 			return StrCmpLogicalW(l.c_str(), r.c_str()) < 0;
 		});
 
-	_dir = path;
+	_dir = dir;
 
 	// find the current file's index
 	for (int i = 0; i < (int)_dirfiles.size(); ++i)
 	{
-		if (_wcsicmp(filename.c_str(), _dirfiles[i].c_str()) == 0)
+		if (_wcsicmp(filenameW.c_str(), _dirfiles[i].c_str()) == 0)
 		{
 			_diridx = i;
 			break;
@@ -342,60 +296,9 @@ int Doc::navigate(NavCmd cmd)
 	if (target == -1)
 		return -1;
 
-	std::wstring failedFile = _dirfiles[target];
-	std::wstring newpath = _dir + DIRSEP + failedFile;
-	if (open(newpath.c_str(), cmd) == IM_OK)
-		return IM_OK;
-
 	int dirHint = (cmd == NAV_PREV) ? -1 : +1;
-	return reopenAfterFail(failedFile, dirHint);
-}
-
-int Doc::reopenAfterFail(const std::wstring& refFile, int dirHint)
-{
-	// Save list before rescan; open() returns early on failure so _dirfiles
-	// still holds the pre-failure state at this point.
-	std::vector<std::wstring> oldFiles = _dirfiles;
-
-	// Rescan the directory (refFile may no longer exist).
-	std::wstring scanPath = _dir + DIRSEP + refFile;
-	updateDir(scanPath.c_str(), false);
-
-	if (_dirfiles.empty()) {
-		close();
-		_path.clear();
-		_dir.clear();
-		_prevDir.clear();
-		_prevFile.clear();
-		if (_fileList) _fileList->rebuild();
-		if (_view)     _view->updateStatus();
-		MessageBoxW(_view ? _view->hwnd() : NULL,
-					L"No image files found in this folder.",
-					L"Info", MB_OK | MB_ICONINFORMATION);
-		return -1;
-	}
-
-	// Find insertion point of refFile in the new sorted list.
-	int pos = (int)_dirfiles.size();
-	for (int i = 0; i < (int)_dirfiles.size(); i++) {
-		if (StrCmpLogicalW(_dirfiles[i].c_str(), refFile.c_str()) >= 0) {
-			pos = i;
-			break;
-		}
-	}
-
-	// dirHint > 0: want a file at/after refFile; < 0: want a file before refFile.
-	int target;
-	if (dirHint >= 0)
-		target = std::min(pos, (int)_dirfiles.size() - 1);
-	else
-		target = std::max(0, pos - 1);
-
-	int res = openDirFile(target);
-	// Smooth merge: preserves scroll position and minimises flicker when
-	// only a few files changed (e.g. a single inaccessible file was skipped).
-	if (_fileList) _fileList->smoothRebuild(oldFiles);
-	return res;
+	std::string path = _dir + "/" + wstr_to_utf8(_dirfiles[target].c_str());
+	return open(_unifs, path.c_str(), cmd, false, dirHint);
 }
 
 void CALLBACK Doc::onAnimate(HWND /*hWnd*/, UINT /*nMsg*/, UINT_PTR nIDEvent, DWORD /*dwTime*/)
@@ -498,59 +401,9 @@ void CALLBACK Doc::onAnimate(HWND /*hWnd*/, UINT /*nMsg*/, UINT_PTR nIDEvent, DW
 
 int Doc::refreshDir()
 {
-	if (_dir.empty() || _dirfiles.empty())
+	if (_path.empty())
 		return -1;
-
-	// Save directory state before the rescan.
-	std::vector<std::wstring> oldFiles = _dirfiles;
-	std::wstring curFile = (_diridx >= 0) ? _dirfiles[_diridx] : L"";
-
-	// Rescan directory.
-	std::wstring scanPath = _dir + DIRSEP + (!curFile.empty() ? curFile : oldFiles.front());
-	updateDir(scanPath.c_str(), false);
-
-	if (_dirfiles.empty())
-	{
-		// Every file in the directory is gone.
-		close();
-		_path.clear();
-		_dir.clear();
-		_prevDir.clear();
-		_prevFile.clear();
-		if (_fileList) _fileList->rebuild();
-		if (_view)     _view->updateStatus();
-		return 0;
-	}
-
-	if (_diridx >= 0)
-	{
-		// Current file still exists: image unchanged, just sync the list.
-		if (_fileList) _fileList->smoothRebuild(oldFiles);
-		return 0;
-	}
-
-	// Current file is gone: find the nearest remaining file and open it.
-	int pos = (int)_dirfiles.size();
-	for (int i = 0; i < (int)_dirfiles.size(); i++)
-	{
-		if (StrCmpLogicalW(_dirfiles[i].c_str(), curFile.c_str()) >= 0)
-		{
-			pos = i;
-			break;
-		}
-	}
-	int target = std::min(pos, (int)_dirfiles.size() - 1);
-
-	_diridx = -1;
-	if (openDirFile(target) != IM_OK)
-	{
-		reopenAfterFail(_dirfiles[target], +1);
-		return 0;
-	}
-
-	// Smooth merge: the missing file is dropped, others are preserved in place.
-	if (_fileList) _fileList->smoothRebuild(oldFiles);
-	return 0;
+	return open(_unifs, _path.c_str(), -1, true, +1);
 }
 
 int Doc::removeCurrentFile(bool shift){
@@ -560,7 +413,7 @@ int Doc::removeCurrentFile(bool shift){
 	const std::wstring delFile = _dirfiles[_diridx];
 	const int          delIdx  = _diridx;
 
-	if (_client)
+	if (dynamic_cast<LocalFs *>(_unifs.get()) == nullptr)	// Not LocalFs => Remote
 	{
 		// Remote delete
 		bool CONFIRM_DELETE = false; // TODO: user option
@@ -575,20 +428,21 @@ int Doc::removeCurrentFile(bool shift){
 		}
 
 		// Delete the remote file using removefile()
-		std::string dir_utf8 = wstr_to_utf8(_dir.c_str());
-		size_t slash = dir_utf8.find('/', 9); // skip "remote://"
-		std::string remoteDir = (slash != std::string::npos)
-								? dir_utf8.substr(slash) : std::string("/");
 		std::string name_utf8 = wstr_to_utf8(delFile.c_str());
-		if (_client->removefile((remoteDir + "/" + name_utf8).c_str()) != 0)
+		if (_unifs->removefile((_dir + "/" + name_utf8).c_str()) != 0)
+		{
+			refreshDir();	// failed, try refresh
 			return -1;
+		}
 	}
 	else
 	{
 		// Local delete via SHFileOperationW (handles recycle bin / permanent)
-		std::wstring dir_w = _dir;
+		std::wstring dir_w = utf8_to_wstr(_dir.c_str());
 		// Convert Unix-style separators back to backslashes for the Shell API
-		for (wchar_t &c : dir_w) if (c == L'/') c = L'\\';
+		for (wchar_t &c : dir_w)
+			if (c == L'/')
+				c = L'\\';
 		std::wstring fullPath = dir_w + L'\\' + delFile;
 
 		// SHFileOperationW requires double-null-terminated string
@@ -605,8 +459,13 @@ int Doc::removeCurrentFile(bool shift){
 		else
 			op.fFlags |= FOF_ALLOWUNDO; // move to recycle bin
 
-		if (SHFileOperationW(&op) != 0 || op.fAnyOperationsAborted)
+		if (SHFileOperationW(&op) != 0)
+		{
+			refreshDir();	// failed, try refresh
 			return -1;
+		}
+		else if (op.fAnyOperationsAborted)
+			return -1;	// canceled, just return
 	}
 
 	// File deleted successfully -- update directory listing
@@ -617,18 +476,20 @@ int Doc::removeCurrentFile(bool shift){
 		// Directory is now empty: reset to initial state
 		close();
 		_dir.clear();
-		_prevDir.clear();
 		_prevFile.clear();
-		if (_fileList) _fileList->rebuild();
-		if (_view)     _view->updateStatus();
+		_curFile.clear();
+		if (_fileList)
+			_fileList->rebuild();
+		if (_view)
+			_view->updateStatus();
 		return 0;
 	}
 
 	// Determine which file to open next:
-	// If _prevFile was in the same directory, use its sort-order relative to
-	// the deleted file to pick the opposite-direction neighbour.
+	// If _prevFile is set, use its sort-order relative to the deleted file
+	// to pick the opposite-direction neighbour.
 	int nextIdx = -1;
-	if (!_prevDir.empty() && _prevDir == _dir && !_prevFile.empty() &&
+	if (!_prevFile.empty() &&
 		_wcsicmp(_prevFile.c_str(), delFile.c_str()) != 0)
 	{
 		int cmp = StrCmpLogicalW(_prevFile.c_str(), delFile.c_str());
@@ -651,13 +512,10 @@ int Doc::removeCurrentFile(bool shift){
 	if (nextIdx < 0)
 		nextIdx = (delIdx < (int)_dirfiles.size()) ? delIdx : (int)_dirfiles.size() - 1;
 
-	// Reset _diridx so openDirFile does not record the wrong prev
-	std::wstring failedFile = _dirfiles[nextIdx];
 	int dirHint = (nextIdx >= delIdx) ? +1 : -1;
+	std::string nextPath = _dir + "/" + wstr_to_utf8(_dirfiles[nextIdx].c_str());
 	_diridx = -1;
-	if (openDirFile(nextIdx) != IM_OK)
-		reopenAfterFail(failedFile, dirHint);
-	else if (_fileList)
-		_fileList->removeItem(delIdx, _diridx);
+	if (_fileList) _fileList->removeItem(delIdx, -1);
+	open(_unifs, nextPath.c_str(), -1, false, dirHint);
 	return 0;
 }

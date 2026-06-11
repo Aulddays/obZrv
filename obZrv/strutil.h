@@ -44,15 +44,14 @@ inline std::wstring utf8_to_wstr(const char* s)
 	return out;
 }
 
-// Convert Windows absolute path (C:\dir\file) to Unix style (/c/dir/file).
-// Leaves paths that are already Unix style (start with '/') unchanged.
-// Leaves relative paths unchanged.
-inline std::wstring win_path_to_unix(const wchar_t* s)
+// Convert Windows absolute path (C:\dir\file) to Unix-style UTF-8 (/c/dir/file).
+// Paths already in Unix style or remote:// URLs are passed through unchanged.
+inline std::string to_unipath(const wchar_t* s)
 {
-	if (!s || !*s) return std::wstring();
-	// Already Unix style or remote path
-	if (s[0] == L'/' || s[0] == L'r') return std::wstring(s);
-	// Detect drive letter: "X:\"  or "X:/"
+	if (!s || !*s) return std::string();
+	// Already Unix style or remote path: just convert encoding
+	if (s[0] == L'/' || s[0] == L'r') return wstr_to_utf8(s);
+	// Detect drive letter: "X:\" or "X:/"
 	if (((s[0] >= L'a' && s[0] <= L'z') || (s[0] >= L'A' && s[0] <= L'Z'))
 		&& s[1] == L':')
 	{
@@ -63,8 +62,8 @@ inline std::wstring win_path_to_unix(const wchar_t* s)
 		// skip "X:" prefix, copy rest converting '\' to '/'
 		for (const wchar_t* p = s + 2; *p; ++p)
 			out += (*p == L'\\') ? L'/' : *p;
-		return out;
+		return wstr_to_utf8(out.c_str());
 	}
 	// Fallback: return as-is
-	return std::wstring(s);
+	return wstr_to_utf8(s);
 }
