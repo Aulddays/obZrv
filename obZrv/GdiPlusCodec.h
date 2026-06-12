@@ -27,6 +27,7 @@ public:
 	GdiPlusCodec();
 	virtual ~GdiPlusCodec();
 
+	virtual const std::set<std::string> &getTypes() const;
 	virtual int open(UniFile *f, Image **image, uint32_t bgcolor);
 };
 

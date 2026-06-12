@@ -23,6 +23,8 @@
 #include <windows.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <set>
+#include <string>
 #include "BasicBitmap/BasicBitmap.h"
 #include "../unifs/unifile.hpp"
 
@@ -86,6 +88,7 @@ public:
 	virtual ~Codec() { };
 
 	virtual int init() { return 0; };
+	virtual const std::set<std::string> &getTypes() const = 0;
 
 	// Open from an already-open UniFile.
 	virtual int open(UniFile *f, Image **image, uint32_t bgcolor) = 0;

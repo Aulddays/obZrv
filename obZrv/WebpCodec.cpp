@@ -229,6 +229,12 @@ WebpCodec::~WebpCodec()
 {
 }
 
+const std::set<std::string> &WebpCodec::getTypes() const
+{
+	static const std::set<std::string> types = { "webp" };
+	return types;
+}
+
 int WebpCodec::open(UniFile *f, Image **image, uint32_t bgcolor)
 {
 	*image = NULL;

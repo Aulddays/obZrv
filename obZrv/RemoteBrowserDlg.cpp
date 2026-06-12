@@ -23,6 +23,7 @@
 #include <windows.h>
 #include <shlwapi.h>
 #include "RemoteBrowserDlg.h"
+#include "Doc.h"
 #include "../unifs/unifs.hpp"
 #include "resource.h"
 #include "strutil.h"
@@ -30,6 +31,7 @@
 #include <vector>
 #include <string>
 #include <algorithm>
+#include <cctype>
 
 // Entry stored per list-box item: name + is_dir flag.
 struct Entry {
@@ -189,6 +191,10 @@ void RemoteBrowserDlg::Navigate(const std::string& dir)
         Entry e;
         e.name   = n;
         e.is_dir = (ent->type() == DirEntry::DIR);
+        if (!e.is_dir) {
+            std::string ext = getExt(n.c_str());
+            if (ext.empty() || !Doc::isSupportedExt(ext)) continue;
+        }
         bd->entries.push_back(e);
     }
 

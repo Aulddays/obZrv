@@ -36,6 +36,9 @@
     <ClCompile Include="dpi.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="filetype.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="FileList.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -55,6 +58,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Menu.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="RecentFileRegistry.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="RemoteBrowserDlg.cpp">
@@ -98,6 +104,9 @@
     <ClInclude Include="dpi.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="filetype.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="FileList.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -114,6 +123,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Menu.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="RecentFileRegistry.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="RemoteBrowserDlg.h">

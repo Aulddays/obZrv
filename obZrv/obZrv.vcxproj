@@ -163,6 +163,7 @@
     <ClCompile Include="ConnectDlg.cpp" />
     <ClCompile Include="Doc.cpp" />
     <ClCompile Include="dpi.cpp" />
+    <ClCompile Include="filetype.cpp" />
     <ClCompile Include="FileList.cpp" />
     <ClCompile Include="GdiPlusCodec.cpp" />
     <ClCompile Include="ImageView.cpp" />
@@ -173,6 +174,7 @@
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="RecentFileRegistry.cpp" />
     <ClCompile Include="RemoteBrowserDlg.cpp" />
     <ClCompile Include="StatusBar.cpp" />
     <ClCompile Include="Toolbar.cpp" />
@@ -187,6 +189,7 @@
     <ClInclude Include="ConnectDlg.h" />
     <ClInclude Include="Doc.h" />
     <ClInclude Include="dpi.h" />
+    <ClInclude Include="filetype.h" />
     <ClInclude Include="FileList.h" />
     <ClInclude Include="GdiPlusCodec.h" />
     <ClInclude Include="ImageView.h" />
@@ -194,6 +197,7 @@
     <ClInclude Include="MainWnd.h" />
     <ClInclude Include="Menu.h" />
     <ClInclude Include="pch.h" />
+    <ClInclude Include="RecentFileRegistry.h" />
     <ClInclude Include="RemoteBrowserDlg.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="StatusBar.h" />

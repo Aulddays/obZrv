@@ -1,4 +1,4 @@
-// obZrv
+﻿// obZrv
 // https://github.com/Aulddays/obZrv
 // 
 // Copyright (c) 2020-2026 Aulddays (https://dev.aulddays.com/). All rights reserved.
@@ -28,6 +28,9 @@
 #include "config.h"
 #include <shellapi.h>
 
+#undef max
+#undef min
+
 /* Find the submenu that DIRECTLY contains cmdId as a non-popup item. */
 static HMENU FindSubMenuWith(HMENU hMenu, UINT cmdId)
 {
@@ -48,9 +51,104 @@ static HMENU FindSubMenuWith(HMENU hMenu, UINT cmdId)
 	return NULL;
 }
 
+static void LoadCommandHint(HINSTANCE hInst, UINT id, TCHAR *buf, int len, bool shortText)
+{
+	if (!buf || len <= 0)
+		return;
+	buf[0] = TEXT('\0');
+	LoadString(hInst, id, buf, len);
+
+	TCHAR *sep = wcschr(buf, TEXT('\n'));
+	if (!sep)
+		return;
+
+	if (shortText && *(sep + 1)) {
+		TCHAR *shortPart = sep + 1;
+		int i = 0;
+		while (i < len - 1 && shortPart[i]) {
+			buf[i] = shortPart[i];
+			i++;
+		}
+		buf[i] = TEXT('\0');
+	} else {
+		*sep = TEXT('\0');
+	}
+}
+
+static void ClearCommandMenuBitmaps(HMENU hMenu)
+{
+	if (!hMenu)
+		return;
+
+	MENUITEMINFOW mii = {};
+	mii.cbSize   = sizeof(mii);
+	mii.fMask    = MIIM_BITMAP;
+	mii.hbmpItem = NULL;
+
+	int n = GetMenuItemCount(hMenu);
+	for (int i = 0; i < n; i++) {
+		SetMenuItemInfoW(hMenu, (UINT)i, TRUE, &mii);
+
+		HMENU hSub = GetSubMenu(hMenu, i);
+		if (hSub)
+			ClearCommandMenuBitmaps(hSub);
+	}
+}
+
+static void UpdateCommandMenuBitmaps(HMENU hMenu, const Toolbar &toolbar,
+									 int sz, std::vector<HBITMAP> &bitmaps)
+{
+	if (!hMenu)
+		return;
+
+	MENUITEMINFOW mii = {};
+	mii.cbSize = sizeof(mii);
+	mii.fMask  = MIIM_BITMAP;
+
+	int n = GetMenuItemCount(hMenu);
+	for (int i = 0; i < n; i++) {
+		HMENU hSub = GetSubMenu(hMenu, i);
+		if (hSub) {
+			UpdateCommandMenuBitmaps(hSub, toolbar, sz, bitmaps);
+			continue;
+		}
+
+		UINT cmd = GetMenuItemID(hMenu, i);
+		if (cmd == (UINT)-1) continue;
+
+		HBITMAP hbmp = toolbar.GetMenuIcon(cmd, sz);
+		if (!hbmp) continue;
+		mii.hbmpItem = hbmp;
+		SetMenuItemInfoW(hMenu, (UINT)i, TRUE, &mii);
+		bitmaps.push_back(hbmp);
+	}
+}
+
+static bool SetSubMenuBitmap(HMENU hMenu, HMENU hSubMenu, HBITMAP hbmp)
+{
+	if (!hMenu || !hSubMenu || !hbmp)
+		return false;
+
+	MENUITEMINFOW mii = {};
+	mii.cbSize   = sizeof(mii);
+	mii.fMask    = MIIM_BITMAP;
+	mii.hbmpItem = hbmp;
+
+	int n = GetMenuItemCount(hMenu);
+	for (int i = 0; i < n; i++) {
+		HMENU hChild = GetSubMenu(hMenu, i);
+		if (hChild == hSubMenu)
+			return SetMenuItemInfoW(hMenu, (UINT)i, TRUE, &mii) != FALSE;
+		if (hChild && SetSubMenuBitmap(hChild, hSubMenu, hbmp))
+			return true;
+	}
+	return false;
+}
+
 bool MainWnd::Create(HINSTANCE hInst, int nShow)
 {
 	m_hInst           = hInst;
+	m_recentMenu      = NULL;
 	m_fileListVisible = true;
 	m_zoomMode        = ID_ZOOMMODE_W2I_ZOOMOUT;
 
@@ -95,6 +193,8 @@ bool MainWnd::OnCreate()
 
 	if (!m_menu.Load(m_hInst, IDR_MAINMENU))
 		return false;
+	m_recentFiles.Load();
+	UpdateRecentFilesMenu();
 	m_menu.Attach(m_hwnd);
 	m_menu.SetChecked(ID_VIEW_FILELIST, m_fileListVisible);
 
@@ -140,7 +240,11 @@ void MainWnd::OpenFile(const wchar_t *path)
 {
 	// Normalise to Unix-style path (/c/dir/file) so all downstream code
 	// (Doc, UniFs, UniFile) works with a single path convention.
-	m_doc.open(std::shared_ptr<UniFs>(LocalFs::open()), to_unipath(path).c_str(), -1, true, INT_MIN);
+	std::string uniPath = to_unipath(path);
+	if (m_doc.open(std::shared_ptr<UniFs>(LocalFs::open()), uniPath.c_str(), -1, true, INT_MIN) == IM_OK) {
+		m_recentFiles.AddLocal(uniPath);
+		UpdateRecentFilesMenu();
+	}
 	// Ensure ImageView gets focus for keyboard navigation
 	SetFocus(m_mainView.imageView().hwnd());
 }
@@ -234,17 +338,36 @@ void MainWnd::OnSize(int cx, int cy)
 
 void MainWnd::OnCommand(UINT id)
 {
+	if (id >= ID_FILE_RECENT_FIRST && id <= ID_FILE_RECENT_LAST) {
+		OpenRecentFile(id);
+		return;
+	}
+
 	switch (id) {
 	case ID_FILE_OPEN:
 	{
-		static const wchar_t filter[] =
-			L"Image Files\0*.bmp;*.jpg;*.jpeg;*.gif;*.png;*.tiff;*.tif;*.ico;*.webp\0"
-			L"All Files\0*.*\0";
+		std::wstring filter = L"Image Files";
+		filter.push_back(L'\0');
+		bool first = true;
+		for (const std::string &type : Doc::getSupportedTypes())
+		{
+			if (!first)
+				filter += L";";
+			filter += L"*.";
+			filter += utf8_to_wstr(type.c_str());
+			first = false;
+		}
+		filter.push_back(L'\0');
+		filter += L"All Files";
+		filter.push_back(L'\0');
+		filter += L"*.*";
+		filter.push_back(L'\0');
+
 		wchar_t path[MAX_PATH] = {};
 		OPENFILENAMEW ofn = {};
 		ofn.lStructSize  = sizeof(ofn);
 		ofn.hwndOwner    = m_hwnd;
-		ofn.lpstrFilter  = filter;
+		ofn.lpstrFilter  = filter.c_str();
 		ofn.lpstrFile    = path;
 		ofn.nMaxFile     = MAX_PATH;
 		ofn.Flags        = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
@@ -263,13 +386,20 @@ void MainWnd::OnCommand(UINT id)
 			RemoteBrowserDlg browser;
 			std::string remotePath = browser.DoModal(m_hwnd, client.get());
 			if (!remotePath.empty()) {
-				m_doc.open(std::shared_ptr<UniFs>(client.release()),
-						   remotePath.c_str(), -1, true, INT_MIN);
+				if (m_doc.open(std::shared_ptr<UniFs>(client.release()),
+						   remotePath.c_str(), -1, true, INT_MIN) == IM_OK) {
+					m_recentFiles.AddRemote(host, port, remotePath);
+					UpdateRecentFilesMenu();
+				}
 				SetFocus(m_mainView.imageView().hwnd());
 			}
 		}
 		break;
 	}
+
+	case ID_FILE_SAVE_AS:
+		SaveAs();
+		break;
 
 	case ID_FILE_EXIT:
 		DestroyWindow(m_hwnd);
@@ -341,7 +471,7 @@ void MainWnd::OnMenuSelect(UINT id, UINT flags)
 		return;
 
 	TCHAR buf[256] = {};
-	LoadString(m_hInst, id, buf, 256);
+	LoadCommandHint(m_hInst, id, buf, 256, false);
 	m_statusBar.SetHint(buf);
 }
 
@@ -353,7 +483,7 @@ void MainWnd::OnNotify(LPARAM lp)
 	if (hdr->code == TTN_GETDISPINFO) {
 		NMTTDISPINFO *tt = reinterpret_cast<NMTTDISPINFO *>(lp);
 		static TCHAR tipBuf[128];
-		LoadString(m_hInst, (UINT)tt->hdr.idFrom + STRING_TIP_OFFSET, tipBuf, 128);
+		LoadCommandHint(m_hInst, (UINT)tt->hdr.idFrom, tipBuf, 128, true);
 		tt->lpszText = tipBuf;
 
 	} else if (hdr->code == TBN_DROPDOWN) {
@@ -366,7 +496,7 @@ void MainWnd::OnNotify(LPARAM lp)
 			m_statusBar.SetHint(TEXT(""));
 		} else {
 			TCHAR hintBuf[256] = {};
-			LoadString(m_hInst, (UINT)hi->idNew, hintBuf, 256);
+			LoadCommandHint(m_hInst, (UINT)hi->idNew, hintBuf, 256, false);
 			m_statusBar.SetHint(hintBuf);
 		}
 	}
@@ -482,6 +612,107 @@ void MainWnd::OnDpiChanged(const RECT *pRect)
 	UpdateButtonStates();
 }
 
+void MainWnd::UpdateRecentFilesMenu()
+{
+	HMENU hMain = m_menu.handle();
+	if (!hMain)
+		return;
+
+	if (!m_recentMenu)
+		m_recentMenu = FindSubMenuWith(hMain, ID_FILE_RECENT_EMPTY);
+	if (!m_recentMenu)
+		return;
+
+	while (GetMenuItemCount(m_recentMenu) > 0)
+		DeleteMenu(m_recentMenu, 0, MF_BYPOSITION);
+
+	if (m_recentFiles.count() == 0) {
+		AppendMenuW(m_recentMenu, MF_GRAYED, ID_FILE_RECENT_EMPTY, L"(Empty)");
+	} else {
+		int n = std::min(m_recentFiles.count(), (int)RecentFileRegistry::MAX_ITEMS);
+		for (int i = 0; i < n; i++) {
+			std::wstring text = m_recentFiles.DisplayText(i);
+			AppendMenuW(m_recentMenu, MF_STRING, ID_FILE_RECENT_FIRST + i, text.c_str());
+		}
+	}
+	DrawMenuBar(m_hwnd);
+}
+
+void MainWnd::SaveAs()
+{
+	if (m_doc.getPath().empty())
+		return;
+
+	wchar_t path[MAX_PATH] = {};
+	int idx = m_doc.getDirIdx();
+	if (idx >= 0) {
+		wcsncpy(path, m_doc.getDirFile(idx).c_str(), MAX_PATH - 1);
+		path[MAX_PATH - 1] = L'\0';
+	}
+
+	std::wstring filter = L"Original File";
+	filter.push_back(L'\0');
+	const wchar_t *dot = wcsrchr(path, L'.');
+	if (dot && *(dot + 1)) {
+		filter += L"*";
+		filter += dot;
+	} else {
+		filter += L"*.*";
+	}
+	filter.push_back(L'\0');
+	filter += L"All Files";
+	filter.push_back(L'\0');
+	filter += L"*.*";
+	filter.push_back(L'\0');
+
+	OPENFILENAMEW ofn = {};
+	ofn.lStructSize  = sizeof(ofn);
+	ofn.hwndOwner    = m_hwnd;
+	ofn.lpstrFilter  = filter.c_str();
+	ofn.lpstrFile    = path;
+	ofn.nMaxFile     = MAX_PATH;
+	ofn.Flags        = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
+	if (!GetSaveFileNameW(&ofn))
+		return;
+
+	if (m_doc.saveAsLocal(path) != 0)
+		MessageBoxW(m_hwnd, L"Could not save the file.",
+					L"Save As Failed", MB_OK | MB_ICONERROR);
+	SetFocus(m_mainView.imageView().hwnd());
+}
+
+void MainWnd::OpenRecentFile(UINT id)
+{
+	int idx = (int)(id - ID_FILE_RECENT_FIRST);
+	if (idx < 0 || idx >= m_recentFiles.count())
+		return;
+
+	const RecentFileRegistry::Entry &entry = m_recentFiles.entry(idx);
+	int res = IM_FAIL;
+	if (entry.type == RecentFileRegistry::Entry::LOCAL) {
+		res = m_doc.open(std::shared_ptr<UniFs>(LocalFs::open()),
+						 entry.path.c_str(), -1, true, INT_MIN);
+	} else {
+		auto client = RemoteFs::open(entry.host.c_str(), entry.port);
+		if (client) {
+			res = m_doc.open(std::shared_ptr<UniFs>(client.release()),
+						 entry.path.c_str(), -1, true, INT_MIN);
+		} else {
+			MessageBoxW(m_hwnd, L"Could not connect to the remote server.",
+					   L"Connection Failed", MB_OK | MB_ICONERROR);
+		}
+	}
+
+	if (res == IM_OK) {
+		if (entry.type == RecentFileRegistry::Entry::LOCAL)
+			m_recentFiles.AddLocal(entry.path);
+		else
+			m_recentFiles.AddRemote(entry.host, entry.port, entry.path);
+		UpdateRecentFilesMenu();
+		SetFocus(m_mainView.imageView().hwnd());
+	}
+}
+
 void MainWnd::ShowZoomModeMenu()
 {
 	/* Find the Zoom Mode submenu from the main menu */
@@ -508,33 +739,7 @@ void MainWnd::ShowZoomModeMenu()
 
 void MainWnd::ClearMenuBitmaps()
 {
-	/* Remove bitmaps from menu items before deleting to avoid dangling handles */
-	MENUITEMINFOW mii = {};
-	mii.cbSize   = sizeof(mii);
-	mii.fMask    = MIIM_BITMAP;
-	mii.hbmpItem = NULL;
-
-	HMENU hMain = m_menu.handle();
-	static const UINT cmds[] = {
-		ID_FILE_OPEN, ID_FILE_PREV, ID_FILE_NEXT,
-		ID_VIEW_ZOOMIN, ID_VIEW_ZOOMTO, ID_VIEW_ZOOMOUT,
-		ID_VIEW_ZOOMREM, ID_VIEW_ZOOM, ID_VIEW_FILELIST
-	};
-	for (int i = 0; i < (int)(sizeof(cmds)/sizeof(cmds[0])); i++)
-		SetMenuItemInfoW(hMain, cmds[i], FALSE, &mii);
-
-	/* Clear Zoom Mode popup bitmap */
-	HMENU hView    = GetSubMenu(hMain, 2);  /* File=0, Edit=1, View=2 */
-	HMENU hZoomSub = FindSubMenuWith(hMain, ID_ZOOMMODE_W2I_ZOOMOUT);
-	if (hView && hZoomSub) {
-		int n = GetMenuItemCount(hView);
-		for (int i = 0; i < n; i++) {
-			if (GetSubMenu(hView, i) == hZoomSub) {
-				SetMenuItemInfoW(hView, (UINT)i, TRUE, &mii);
-				break;
-			}
-		}
-	}
+	ClearCommandMenuBitmaps(m_menu.handle());
 
 	for (HBITMAP hb : m_menuBitmaps) DeleteObject(hb);
 	m_menuBitmaps.clear();
@@ -546,48 +751,21 @@ void MainWnd::UpdateMenuIcons()
 
 	int sz = GetSystemMetrics(SM_CYSMICON);
 
-	/* Commands with both a menu item and a toolbar icon */
-	static const struct { UINT cmd; } items[] = {
-		{ ID_FILE_OPEN    },
-		{ ID_FILE_PREV    },
-		{ ID_FILE_NEXT    },
-		{ ID_VIEW_ZOOMIN  },
-		{ ID_VIEW_ZOOMTO  },
-		{ ID_VIEW_ZOOMOUT },
-		{ ID_VIEW_ZOOMREM },
-		{ ID_VIEW_ZOOM    },
-		{ ID_VIEW_FILELIST },
-	};
 	HMENU hMain = m_menu.handle();
-	MENUITEMINFOW mii = {};
-	mii.cbSize = sizeof(mii);
-	mii.fMask  = MIIM_BITMAP;
+	UpdateCommandMenuBitmaps(hMain, m_toolbar, sz, m_menuBitmaps);
 
-	for (int i = 0; i < (int)(sizeof(items)/sizeof(items[0])); i++) {
-		HBITMAP hbmp = m_toolbar.GetMenuIcon(items[i].cmd, sz);
-		if (!hbmp) continue;
-		mii.hbmpItem = hbmp;
-		SetMenuItemInfoW(hMain, items[i].cmd, FALSE, &mii);
-		m_menuBitmaps.push_back(hbmp);
-	}
-
-	/* Zoom Mode is a POPUP item -- find it by submenu handle, set by position */
-	HMENU hView    = GetSubMenu(hMain, 2);  /* File=0, Edit=1, View=2 */
 	HMENU hZoomSub = FindSubMenuWith(hMain, ID_ZOOMMODE_W2I_ZOOMOUT);
-	if (hView && hZoomSub) {
-		int n = GetMenuItemCount(hView);
-		for (int i = 0; i < n; i++) {
-			if (GetSubMenu(hView, i) == hZoomSub) {
-				HBITMAP hbmp = m_toolbar.GetMenuIcon(ID_VIEW_ZOOMMODE, sz);
-				if (hbmp) {
-					mii.hbmpItem = hbmp;
-					SetMenuItemInfoW(hView, (UINT)i, TRUE, &mii);
-					m_menuBitmaps.push_back(hbmp);
-				}
-				break;
-			}
-		}
-	}
+	HBITMAP hbmpZoom = m_toolbar.GetMenuIcon(ID_VIEW_ZOOMMODE, sz);
+	if (hbmpZoom && SetSubMenuBitmap(hMain, hZoomSub, hbmpZoom))
+		m_menuBitmaps.push_back(hbmpZoom);
+	else if (hbmpZoom)
+		DeleteObject(hbmpZoom);
+
+	HBITMAP hbmpRecent = Toolbar::GetShellMenuIcon(86, sz);
+	if (hbmpRecent && SetSubMenuBitmap(hMain, m_recentMenu, hbmpRecent))
+		m_menuBitmaps.push_back(hbmpRecent);
+	else if (hbmpRecent)
+		DeleteObject(hbmpRecent);
 }
 
 
@@ -597,15 +775,18 @@ void MainWnd::UpdateButtonStates()
 	int cnt = m_doc.getDirCount();
 	bool canPrev   = idx > 0;
 	bool canNext   = idx >= 0 && idx < cnt - 1;
+	bool canSaveAs = !m_doc.getPath().empty();
 	bool canZoomIn  = m_mainView.imageView().zoom( 1, true) == 0;
 	bool canZoomOut = m_mainView.imageView().zoom(-1, true) == 0;
 
+	m_toolbar.EnableButton(ID_FILE_SAVE_AS,  canSaveAs);
 	m_toolbar.EnableButton(ID_FILE_PREV,     canPrev);
 	m_toolbar.EnableButton(ID_FILE_NEXT,     canNext);
 	m_toolbar.EnableButton(ID_VIEW_ZOOMIN,   canZoomIn);
 	m_toolbar.EnableButton(ID_VIEW_ZOOMOUT,  canZoomOut);
 	m_toolbar.EnableButton(ID_VIEW_ZOOMMODE, true);
 
+	m_menu.EnableItem(ID_FILE_SAVE_AS, canSaveAs);
 	m_menu.EnableItem(ID_FILE_PREV,    canPrev);
 	m_menu.EnableItem(ID_FILE_NEXT,    canNext);
 	m_menu.EnableItem(ID_VIEW_ZOOMIN,  canZoomIn);

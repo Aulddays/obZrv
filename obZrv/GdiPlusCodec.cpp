@@ -278,6 +278,14 @@ GdiPlusCodec::~GdiPlusCodec()
 {
 }
 
+const std::set<std::string> &GdiPlusCodec::getTypes() const
+{
+	static const std::set<std::string> types = {
+		"bmp", "jpg", "jpeg", "gif", "png", "tiff", "tif", "ico"
+	};
+	return types;
+}
+
 int GdiPlusCodec::open(UniFile *f, Image **image, uint32_t bgcolor)
 {
 	*image = NULL;

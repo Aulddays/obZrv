@@ -1,5 +1,23 @@
 #pragma once
 
+/* Resource ID layout
+ *
+ * 100-199:   icons and other top-level visual resources.
+ * 200-299:   menus and accelerator tables.
+ * 300-399:   toolbar image strips and binary toolbar resources.
+ * 400-499:   dialogs.
+ * 500-999:   dialog controls.
+ * 1000-1999: fixed command IDs. These IDs are also used directly as
+ *             command string IDs in obZrv.rc. Command strings may contain
+ *             "long\nshort" text, where long is used for status/menu hints
+ *             and short is used for toolbar tooltips.
+ * 2000-2099: dynamic Recent Files command IDs. The registry keeps 20 items,
+ *             but the command range intentionally reserves 100 IDs.
+ *
+ * Keep fixed commands below 2000. Dynamic command IDs do not have resource
+ * strings and should provide display text at runtime.
+ */
+
 /* Icons */
 #define IDI_APPICON        101
 
@@ -12,12 +30,12 @@
 #define IDR_TOOLBAR_144    303
 #define IDR_TOOLBAR_192    304
 
-/* Commands - also used as string table IDs for status bar hints.
- * Adding STRING_TIP_OFFSET gives the short tooltip string ID. */
+/* Fixed commands - also used as command string IDs for hints/tooltips. */
 #define ID_FILE_EXIT       1001
 #define ID_VIEW_FILELIST   1002
 #define ID_HELP_ABOUT      1003
 #define ID_FILE_OPEN       1004
+#define ID_FILE_SAVE_AS    1015
 #define ID_FILE_PREV       1005
 #define ID_FILE_NEXT       1006
 #define ID_VIEW_ZOOMIN     1007
@@ -32,7 +50,6 @@
 #define ID_ZOOMMODE_NOFIT        1014  /* No Fit                                 */
 
 /* Stub commands (not yet implemented, always disabled) */
-#define ID_FILE_SAVE_AS    1015
 #define ID_EDIT_UNDO       1016
 #define ID_EDIT_CUT        1017
 #define ID_EDIT_COPY       1018
@@ -51,8 +68,10 @@
 /* Refresh: rescan directory; if current file gone, behave like delete */
 #define ID_FILE_REFRESH      1026
 
-/* Offset: command ID + STRING_TIP_OFFSET = short tooltip string */
-#define STRING_TIP_OFFSET  100
+/* Recent files submenu */
+#define ID_FILE_RECENT_EMPTY 1027
+#define ID_FILE_RECENT_FIRST 2000
+#define ID_FILE_RECENT_LAST  2099
 
 /* Custom message: LPARAM = const wchar_t * info text */
 #define WM_APP_SETINFO     (WM_APP + 1)

@@ -26,7 +26,10 @@
 #include "resource.h"
 
 /* Shell32 icon indices */
-//#define SHELL32_FOLDER   3    /* folder -- used for FileList toggle */
+#define SHELL32_FOLDER   3    /* folder -- used for FileList toggle */
+#define SHELL32_SAVEAS   6    /* floppy disk -- used for Save As */
+#define SHELL32_NETWORK  13   /* network/globe -- used for Open Remote */
+#define SHELL32_REFRESH  238  /* two-arrows sync/refresh */
 
 /* Icon images in the PNG strip; Icons from shell dll are appended after */
 #define IMG_OPEN        0
@@ -41,6 +44,7 @@
 #define IMG_FILELIST    9   /* Toggle file list */
 #define IMG_OPENREMOTE  10
 #define IMG_REFRESH     11
+#define IMG_SAVEAS      12  /* shell32 icon appended after the PNG strip */
 
 Toolbar::Toolbar()
 	: m_hBand(NULL), m_hwnd(NULL), m_hInst(NULL), m_himl(NULL), m_himlDis(NULL), m_bandH(0)
@@ -106,6 +110,7 @@ bool Toolbar::Create(HWND hParent, HINSTANCE hInst)
 	TBBUTTON buttons[] = {
 		{IMG_OPEN,        ID_FILE_OPEN,        TBSTATE_ENABLED, BTNS_BUTTON, {0}, 0, 0},
 		{IMG_OPENREMOTE,  ID_FILE_OPEN_REMOTE, TBSTATE_ENABLED, BTNS_BUTTON, {0}, 0, 0},
+		{IMG_SAVEAS,      ID_FILE_SAVE_AS,     0,               BTNS_BUTTON, {0}, 0, 0},
 		{IMG_REFRESH,     ID_FILE_REFRESH,     TBSTATE_ENABLED, BTNS_BUTTON, {0}, 0, 0},
 		{IMG_FILELIST,    ID_VIEW_FILELIST,    TBSTATE_ENABLED, BTNS_CHECK,  {0}, 0, 0},
 		{IMG_PREV,        ID_FILE_PREV,        TBSTATE_ENABLED, BTNS_BUTTON, {0}, 0, 0},
@@ -135,100 +140,165 @@ static void SelectDpiTier(int *resId, int *iconSz)
 	else                { *resId = IDR_TOOLBAR_192; *iconSz = 40; }
 }
 
-/* Build a 32-bit premultiplied-alpha DIB from a GDI+ Bitmap for use in ILC_COLOR32.
- * gray=true converts RGB to luminance; alphaPercent scales the alpha channel.
- * ILC_COLOR32 expects premultiplied BGRA -- GetHBITMAP composites onto background
- * instead, so we build the DIB manually here. */
-static HBITMAP MakePremultipliedDIB(Gdiplus::Bitmap *bmp, bool gray, int alphaPercent)
+class IconPixels
 {
-	int w = (int)bmp->GetWidth(), h = (int)bmp->GetHeight();
+public:
+	IconPixels() : m_w(0), m_h(0) {}
 
-	BITMAPINFO bi = {};
-	bi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
-	bi.bmiHeader.biWidth       = w;
-	bi.bmiHeader.biHeight      = -h;   /* top-down */
-	bi.bmiHeader.biPlanes      = 1;
-	bi.bmiHeader.biBitCount    = 32;
-	bi.bmiHeader.biCompression = BI_RGB;
+	bool valid() const { return m_w > 0 && m_h > 0 && !m_bgra.empty(); }
 
-	void *bits = NULL;
-	HBITMAP hbmp = CreateDIBSection(NULL, &bi, DIB_RGB_COLORS, &bits, NULL, 0);
-	if (!hbmp || !bits) return NULL;
+	static IconPixels FromGdiBitmap(Gdiplus::Bitmap *bmp)
+	{
+		IconPixels out;
+		if (!bmp) return out;
 
-	Gdiplus::BitmapData bd = {};
-	Gdiplus::Rect rect(0, 0, w, h);
-	if (bmp->LockBits(&rect, Gdiplus::ImageLockModeRead,
-					  PixelFormat32bppARGB, &bd) != Gdiplus::Ok) {
-		DeleteObject(hbmp);
-		return NULL;
-	}
+		int w = (int)bmp->GetWidth(), h = (int)bmp->GetHeight();
+		Gdiplus::BitmapData bd = {};
+		Gdiplus::Rect rect(0, 0, w, h);
+		if (bmp->LockBits(&rect, Gdiplus::ImageLockModeRead,
+						  PixelFormat32bppARGB, &bd) != Gdiplus::Ok)
+			return out;
 
-	/* GDI+ PixelFormat32bppARGB byte order: B G R A */
-	const BYTE *src = (const BYTE *)bd.Scan0;
-	BYTE       *dst = (BYTE *)bits;
-	for (int i = 0; i < w * h; i++, src += 4, dst += 4) {
-		BYTE b = src[0], g = src[1], r = src[2], a = src[3];
-		if (gray) {
-			BYTE lum = (BYTE)((r * 77u + g * 150u + b * 29u) >> 8);
-			r = g = b = lum;
+		out.m_w = w;
+		out.m_h = h;
+		out.m_bgra.resize(w * h * 4);
+		for (int y = 0; y < h; y++) {
+			const BYTE *src = bd.Stride >= 0
+				? (const BYTE *)bd.Scan0 + y * bd.Stride
+				: (const BYTE *)bd.Scan0 + (h - 1 - y) * -bd.Stride;
+			memcpy(&out.m_bgra[y * w * 4], src, w * 4);
 		}
-		UINT a2 = (UINT)a * (UINT)alphaPercent / 100;
-		/* premultiply: each channel * a2 / 255 */
-		dst[0] = (BYTE)((UINT)b * a2 / 255);
-		dst[1] = (BYTE)((UINT)g * a2 / 255);
-		dst[2] = (BYTE)((UINT)r * a2 / 255);
-		dst[3] = (BYTE)a2;
-	}
-	bmp->UnlockBits(&bd);
-	return hbmp;
-}
-
-/* Build disabled icon: grayscale blended onto COLOR_BTNFACE at iconOpacity%.
- * Output is fully opaque -- no alpha dependency on the toolbar's drawing path. */
-static HBITMAP MakeDisabledDIB(Gdiplus::Bitmap *bmp, int iconOpacity)
-{
-	int w = (int)bmp->GetWidth(), h = (int)bmp->GetHeight();
-
-	BITMAPINFO bi = {};
-	bi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
-	bi.bmiHeader.biWidth       = w;
-	bi.bmiHeader.biHeight      = -h;
-	bi.bmiHeader.biPlanes      = 1;
-	bi.bmiHeader.biBitCount    = 32;
-	bi.bmiHeader.biCompression = BI_RGB;
-
-	void *bits = NULL;
-	HBITMAP hbmp = CreateDIBSection(NULL, &bi, DIB_RGB_COLORS, &bits, NULL, 0);
-	if (!hbmp || !bits) return NULL;
-
-	COLORREF bgcr = GetSysColor(COLOR_BTNFACE);
-	UINT bgR = GetRValue(bgcr), bgG = GetGValue(bgcr), bgB = GetBValue(bgcr);
-
-	Gdiplus::BitmapData bd = {};
-	Gdiplus::Rect rect(0, 0, w, h);
-	if (bmp->LockBits(&rect, Gdiplus::ImageLockModeRead,
-					  PixelFormat32bppARGB, &bd) != Gdiplus::Ok) {
-		DeleteObject(hbmp);
-		return NULL;
+		bmp->UnlockBits(&bd);
+		return out;
 	}
 
-	/* For each pixel:  out = lum * (a/255 * opacity) + bg * (1 - a/255 * opacity)
-	 * Use denominator 25500 = 255 * 100 to keep integer arithmetic.             */
-	const BYTE *src = (const BYTE *)bd.Scan0;
-	BYTE       *dst = (BYTE *)bits;
-	for (int i = 0; i < w * h; i++, src += 4, dst += 4) {
-		BYTE b = src[0], g = src[1], r = src[2], a = src[3];
-		BYTE lum  = (BYTE)((r * 77u + g * 150u + b * 29u) >> 8);
-		UINT iconW = (UINT)a * (UINT)iconOpacity;   /* 0 .. 255*100 = 25500 */
-		UINT bgW   = 25500u - iconW;
-		dst[0] = (BYTE)((lum * iconW + bgB * bgW) / 25500u);
-		dst[1] = (BYTE)((lum * iconW + bgG * bgW) / 25500u);
-		dst[2] = (BYTE)((lum * iconW + bgR * bgW) / 25500u);
-		dst[3] = 255;   /* fully opaque -- no alpha channel needed */
+	static IconPixels FromImageList(HIMAGELIST himl, int idx, int sz)
+	{
+		IconPixels out;
+		if (!himl) return out;
+
+		IMAGEINFO ii = {};
+		if (!ImageList_GetImageInfo(himl, idx, &ii)) return out;
+
+		BITMAP bm = {};
+		GetObject(ii.hbmImage, sizeof(bm), &bm);
+		int stripW = bm.bmWidth;
+		int stripH = bm.bmHeight;
+		if (stripW <= 0 || stripH <= 0) return out;
+
+		BITMAPINFOHEADER bih = {};
+		bih.biSize        = sizeof(bih);
+		bih.biWidth       = stripW;
+		bih.biHeight      = stripH;
+		bih.biPlanes      = 1;
+		bih.biBitCount    = 32;
+		bih.biCompression = BI_RGB;
+
+		std::vector<BYTE> strip(stripW * stripH * 4);
+		HDC hdcTmp = CreateCompatibleDC(NULL);
+		int rows = hdcTmp ? GetDIBits(hdcTmp, ii.hbmImage, 0, (UINT)stripH,
+								 strip.data(), (BITMAPINFO *)&bih, DIB_RGB_COLORS) : 0;
+		if (hdcTmp) DeleteDC(hdcTmp);
+		if (!rows) return out;
+
+		out.m_w = sz;
+		out.m_h = sz;
+		out.m_bgra.resize(sz * sz * 4);
+
+		int srcX = ii.rcImage.left;
+		int srcY = ii.rcImage.top;
+		int srcW = ii.rcImage.right  - srcX;
+		int srcH = ii.rcImage.bottom - srcY;
+		BYTE *dst = out.m_bgra.data();
+		for (int dy = 0; dy < sz; dy++) {
+			int sytd = srcY + (sz > 1 ? dy * (srcH - 1) / (sz - 1) : 0);
+			int sybu = (stripH - 1) - sytd;
+			for (int dx = 0; dx < sz; dx++, dst += 4) {
+				int sx = srcX + (sz > 1 ? dx * (srcW - 1) / (sz - 1) : 0);
+				const BYTE *src = strip.data() + (sybu * stripW + sx) * 4;
+				BYTE a = src[3];
+				dst[3] = a;
+				if (a == 0) {
+					dst[0] = dst[1] = dst[2] = 0;
+				} else {
+					dst[0] = Unpremultiply(src[0], a);
+					dst[1] = Unpremultiply(src[1], a);
+					dst[2] = Unpremultiply(src[2], a);
+				}
+			}
+		}
+		return out;
 	}
-	bmp->UnlockBits(&bd);
-	return hbmp;
-}
+
+	HBITMAP ToPremultipliedBitmap(int alphaPercent = 100) const
+	{
+		if (!valid()) return NULL;
+
+		void *bits = NULL;
+		HBITMAP hbmp = Create32bppDIB(m_w, m_h, &bits);
+		if (!hbmp || !bits) return NULL;
+
+		const BYTE *src = m_bgra.data();
+		BYTE *dst = (BYTE *)bits;
+		for (int i = 0; i < m_w * m_h; i++, src += 4, dst += 4) {
+			UINT a = (UINT)src[3] * (UINT)alphaPercent / 100;
+			dst[0] = (BYTE)((UINT)src[0] * a / 255);
+			dst[1] = (BYTE)((UINT)src[1] * a / 255);
+			dst[2] = (BYTE)((UINT)src[2] * a / 255);
+			dst[3] = (BYTE)a;
+		}
+		return hbmp;
+	}
+
+	HBITMAP ToDisabledBitmap(int iconOpacity) const
+	{
+		if (!valid()) return NULL;
+
+		void *bits = NULL;
+		HBITMAP hbmp = Create32bppDIB(m_w, m_h, &bits);
+		if (!hbmp || !bits) return NULL;
+
+		COLORREF bgcr = GetSysColor(COLOR_BTNFACE);
+		UINT bgR = GetRValue(bgcr), bgG = GetGValue(bgcr), bgB = GetBValue(bgcr);
+
+		const BYTE *src = m_bgra.data();
+		BYTE *dst = (BYTE *)bits;
+		for (int i = 0; i < m_w * m_h; i++, src += 4, dst += 4) {
+			BYTE b = src[0], g = src[1], r = src[2], a = src[3];
+			BYTE lum = (BYTE)((r * 77u + g * 150u + b * 29u) >> 8);
+			UINT iconW = (UINT)a * (UINT)iconOpacity;
+			UINT bgW = 25500u - iconW;
+			dst[0] = (BYTE)((lum * iconW + bgB * bgW) / 25500u);
+			dst[1] = (BYTE)((lum * iconW + bgG * bgW) / 25500u);
+			dst[2] = (BYTE)((lum * iconW + bgR * bgW) / 25500u);
+			dst[3] = 255;
+		}
+		return hbmp;
+	}
+
+private:
+	static HBITMAP Create32bppDIB(int w, int h, void **bits)
+	{
+		BITMAPINFO bi = {};
+		bi.bmiHeader.biSize        = sizeof(BITMAPINFOHEADER);
+		bi.bmiHeader.biWidth       = w;
+		bi.bmiHeader.biHeight      = -h;
+		bi.bmiHeader.biPlanes      = 1;
+		bi.bmiHeader.biBitCount    = 32;
+		bi.bmiHeader.biCompression = BI_RGB;
+		return CreateDIBSection(NULL, &bi, DIB_RGB_COLORS, bits, NULL, 0);
+	}
+
+	static BYTE Unpremultiply(BYTE v, BYTE a)
+	{
+		UINT out = (UINT)v * 255u / (UINT)a;
+		return (BYTE)(out > 255u ? 255u : out);
+	}
+
+	int m_w;
+	int m_h;
+	std::vector<BYTE> m_bgra;
+};
 
 /* Load a PNG strip from RCDATA and build normal + disabled ILC_COLOR32 image lists.
  * Disabled variant: grayscale + reduced alpha.
@@ -263,10 +333,14 @@ HIMAGELIST Toolbar::LoadPngStrip(int resId, int iconSz, HIMAGELIST *pHimlDis) co
 		return NULL;
 	}
 
-	HBITMAP hbmpNormal = MakePremultipliedDIB(bmp, false, 100);
+	IconPixels pixels = IconPixels::FromGdiBitmap(bmp);
+	delete bmp;
+	if (!pixels.valid()) return NULL;
+
+	HBITMAP hbmpNormal = pixels.ToPremultipliedBitmap();
 
 	if (pHimlDis) {
-		HBITMAP hbmpDis = MakeDisabledDIB(bmp, 40);  /* 40% icon on bg */
+		HBITMAP hbmpDis = pixels.ToDisabledBitmap(40);  /* 40% icon on bg */
 		if (hbmpDis) {
 			HIMAGELIST himlDis = ImageList_Create(iconSz, iconSz, ILC_COLOR32, 10, 0);
 			if (himlDis) {
@@ -276,8 +350,6 @@ HIMAGELIST Toolbar::LoadPngStrip(int resId, int iconSz, HIMAGELIST *pHimlDis) co
 			DeleteObject(hbmpDis);
 		}
 	}
-
-	delete bmp;
 
 	if (!hbmpNormal) return NULL;
 	HIMAGELIST himl = ImageList_Create(iconSz, iconSz, ILC_COLOR32, 10, 0);
@@ -299,15 +371,27 @@ void Toolbar::UpdateDpi()
 	HIMAGELIST himlNewDis = NULL;
 	HIMAGELIST himlNew = LoadPngStrip(resId, iconSz, &himlNewDis);
 
-	/* Append the FileList (folder) shell32 icon */
-	//if (himlNew) {
-	//    HICON hRefresh = LoadShell32Icon(SHELL32_REFRESH, iconSz);
-	//    if (hRefresh) {
-	//        ImageList_AddIcon(himlNew, hRefresh);
-	//        if (himlNewDis) ImageList_AddIcon(himlNewDis, hRefresh);
-	//        DestroyIcon(hRefresh);
-	//    }
-	//}
+	/* Append the Save As shell32 icon. */
+	if (himlNew) {
+		HICON hSaveAs = LoadShell32Icon(SHELL32_SAVEAS, iconSz);
+		if (hSaveAs) {
+			int imageIdx = ImageList_AddIcon(himlNew, hSaveAs);
+			if (himlNewDis) {
+				HBITMAP hbmpDis = NULL;
+				if (imageIdx >= 0) {
+					IconPixels pixels = IconPixels::FromImageList(himlNew, imageIdx, iconSz);
+					hbmpDis = pixels.ToDisabledBitmap(40);
+				}
+				if (hbmpDis) {
+					ImageList_Add(himlNewDis, hbmpDis, NULL);
+					DeleteObject(hbmpDis);
+				} else {
+					ImageList_AddIcon(himlNewDis, hSaveAs);
+				}
+			}
+			DestroyIcon(hSaveAs);
+		}
+	}
 
 	/* Swap in the new image lists */
 	if (m_himl) {
@@ -367,10 +451,32 @@ HICON Toolbar::LoadShell32Icon(int idx, int size)
 	return hSized;
 }
 
+static HBITMAP GetImageListMenuIcon(HIMAGELIST himl, int idx, int sz)
+{
+	IconPixels pixels = IconPixels::FromImageList(himl, idx, sz);
+	return pixels.ToPremultipliedBitmap();
+}
+
+HBITMAP Toolbar::GetShellMenuIcon(int idx, int sz)
+{
+	HICON hIcon = LoadShell32Icon(idx, sz);
+	if (!hIcon) return NULL;
+
+	HIMAGELIST himl = ImageList_Create(sz, sz, ILC_COLOR32, 1, 0);
+	if (!himl) {
+		DestroyIcon(hIcon);
+		return NULL;
+	}
+
+	int imageIdx = ImageList_AddIcon(himl, hIcon);
+	DestroyIcon(hIcon);
+	HBITMAP hbmp = imageIdx >= 0 ? GetImageListMenuIcon(himl, imageIdx, sz) : NULL;
+	ImageList_Destroy(himl);
+	return hbmp;
+}
+
 HBITMAP Toolbar::GetMenuIcon(UINT cmdId, int sz) const
 {
-	if (!m_himl) return NULL;
-
 	int idx;
 	switch (cmdId) {
 	case ID_FILE_OPEN:     idx = IMG_OPEN;     break;
@@ -385,73 +491,9 @@ HBITMAP Toolbar::GetMenuIcon(UINT cmdId, int sz) const
 	case ID_VIEW_FILELIST:    idx = IMG_FILELIST;    break;
 	case ID_FILE_OPEN_REMOTE: idx = IMG_OPENREMOTE;  break;
 	case ID_FILE_REFRESH:     idx = IMG_REFRESH;     break;
+	case ID_FILE_SAVE_AS:     idx = IMG_SAVEAS;      break;
 	default: return NULL;
 	}
 
-	/* Extract icon from the image list's internal strip via GetDIBits.
-	 * StretchBlt(SRCCOPY) zeroes the alpha byte when passing through GDI,
-	 * so we read raw pixels directly with GetDIBits to preserve premultiplied
-	 * BGRA data, then manually scale the sub-region into the output DIB. */
-	IMAGEINFO ii = {};
-	if (!ImageList_GetImageInfo(m_himl, idx, &ii)) return NULL;
-
-	BITMAP bm = {};
-	GetObject(ii.hbmImage, sizeof(bm), &bm);
-	int stripW = bm.bmWidth;
-	int stripH = bm.bmHeight;
-	if (stripW <= 0 || stripH <= 0) return NULL;
-
-	/* Read full strip pixels bottom-up (positive biHeight) */
-	BITMAPINFOHEADER bih = {};
-	bih.biSize        = sizeof(bih);
-	bih.biWidth       = stripW;
-	bih.biHeight      = stripH;
-	bih.biPlanes      = 1;
-	bih.biBitCount    = 32;
-	bih.biCompression = BI_RGB;
-
-	BYTE *strip = (BYTE *)HeapAlloc(GetProcessHeap(), 0, stripW * stripH * 4);
-	if (!strip) return NULL;
-
-	HDC hdcTmp = CreateCompatibleDC(NULL);
-	int rows = GetDIBits(hdcTmp, ii.hbmImage, 0, (UINT)stripH,
-						  strip, (BITMAPINFO *)&bih, DIB_RGB_COLORS);
-	DeleteDC(hdcTmp);
-	if (!rows) { HeapFree(GetProcessHeap(), 0, strip); return NULL; }
-
-	/* Create output top-down 32-bit DIB section */
-	BITMAPINFOHEADER outBih = {};
-	outBih.biSize        = sizeof(outBih);
-	outBih.biWidth       = sz;
-	outBih.biHeight      = -sz;
-	outBih.biPlanes      = 1;
-	outBih.biBitCount    = 32;
-	outBih.biCompression = BI_RGB;
-
-	void *outBits = NULL;
-	HBITMAP hbmp = CreateDIBSection(NULL, (BITMAPINFO *)&outBih,
-									 DIB_RGB_COLORS, &outBits, NULL, 0);
-	if (!hbmp) { HeapFree(GetProcessHeap(), 0, strip); return NULL; }
-
-	/* Scale icon sub-region into output with nearest-neighbour.
-	 * ii.rcImage is top-down; strip is stored bottom-up by GetDIBits. */
-	int srcX = ii.rcImage.left;
-	int srcY = ii.rcImage.top;
-	int srcW = ii.rcImage.right  - srcX;
-	int srcH = ii.rcImage.bottom - srcY;
-
-	BYTE *dst = (BYTE *)outBits;
-	for (int dy = 0; dy < sz; dy++) {
-		int sytd = srcY + dy * srcH / sz;
-		int sybu = (stripH - 1) - sytd;   /* flip top-down -> bottom-up */
-		for (int dx = 0; dx < sz; dx++) {
-			int sx = srcX + dx * srcW / sz;
-			const BYTE *s = strip + (sybu * stripW + sx) * 4;
-			BYTE       *d = dst   + (dy   * sz     + dx) * 4;
-			d[0] = s[0]; d[1] = s[1]; d[2] = s[2]; d[3] = s[3];
-		}
-	}
-
-	HeapFree(GetProcessHeap(), 0, strip);
-	return hbmp;
+	return GetImageListMenuIcon(m_himl, idx, sz);
 }

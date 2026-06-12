@@ -65,9 +65,11 @@ public:
 	/* Height of the band, set once per UpdateDpi() call. */
 	int  bandHeight() const { return m_bandH; }
 
-	/* Return a sz x sz HBITMAP for use as a menu icon (caller owns it).
-	 * Drawn on COLOR_MENU background so it works on all Windows versions. */
+	/* Return a sz x sz HBITMAP for use as a menu icon (caller owns it). */
 	HBITMAP GetMenuIcon(UINT cmdId, int sz) const;
+
+	/* Return a sz x sz shell32 icon bitmap for use as a menu icon (caller owns it). */
+	static HBITMAP GetShellMenuIcon(int idx, int sz);
 
 private:
 	HWND       m_hBand;

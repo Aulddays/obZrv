@@ -20,7 +20,10 @@
 
 #pragma once
 #include <windows.h>
+#include <algorithm>
+#include <cctype>
 #include <string>
+#include <string.h>
 
 // Convert wchar_t (UTF-16) string to UTF-8 std::string.
 inline std::string wstr_to_utf8(const wchar_t* s)
@@ -42,6 +45,20 @@ inline std::wstring utf8_to_wstr(const char* s)
 	std::wstring out(len - 1, L'\0');
 	MultiByteToWideChar(CP_UTF8, 0, s, -1, &out[0], len);
 	return out;
+}
+
+inline std::string getExt(const char *path)
+{
+	if (!path)
+		return std::string();
+	const char *sep = strrchr(path, '/');
+	const char *name = sep ? sep + 1 : path;
+	const char *dot = strrchr(name, '.');
+	if (!dot || !*(dot + 1))
+		return std::string();
+	std::string ext(dot + 1);
+	std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return (char)tolower(c); });
+	return ext;
 }
 
 // Convert Windows absolute path (C:\dir\file) to Unix-style UTF-8 (/c/dir/file).

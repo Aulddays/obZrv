@@ -30,6 +30,7 @@
 #include "strutil.h"
 #include "ConnectDlg.h"
 #include "RemoteBrowserDlg.h"
+#include "RecentFileRegistry.h"
 
 /* Name of the main window class registered with Windows */
 #define MAINWND_CLASS TEXT("obZrvMain")
@@ -55,6 +56,8 @@ private:
 	StatusBar m_statusBar;
 	MainView  m_mainView;
 	Doc       m_doc;
+	RecentFileRegistry m_recentFiles;
+	HMENU     m_recentMenu;
 	bool      m_fileListVisible;
 	int       m_zoomMode;   /* active ID_ZOOMMODE_* value */
 	std::vector<HBITMAP> m_menuBitmaps;  /* owned menu icon bitmaps */
@@ -70,6 +73,9 @@ private:
 	void SaveWindowPlacement();
 	RECT ClampWindowRectToNearestWorkArea(const RECT &rc);
 	void UpdateButtonStates();
+	void UpdateRecentFilesMenu();
+	void OpenRecentFile(UINT id);
+	void SaveAs();
 	void ShowZoomModeMenu();
 	void UpdateMenuIcons();    /* set/refresh menu item bitmaps from toolbar image list */
 	void ClearMenuBitmaps();   /* remove bitmaps from menu items and free them */

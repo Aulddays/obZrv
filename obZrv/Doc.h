@@ -25,6 +25,7 @@
 #include <vector>
 #include <string>
 #include <memory>
+#include <set>
 #include "Codec.h"
 #include "strutil.h"
 
@@ -41,6 +42,8 @@ public:
 	~Doc();
 
 	static int initCodec();
+	static const std::set<std::string> &getSupportedTypes();
+	static bool isSupportedExt(const std::string &ext);
 
 	// Open an image file.
 	// unifs: filesystem to use; if null, reuse the current _unifs.
@@ -65,6 +68,9 @@ public:
 
 	// Release current image and reset state
 	void close();
+
+	// Save the currently opened file bytes to a local filesystem path.
+	int saveAsLocal(const wchar_t *path);
 
 	Image *getImage() const { return _image; }
 	const std::string &getPath() const { return _path; }

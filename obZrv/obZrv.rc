@@ -20,7 +20,11 @@ BEGIN
     BEGIN
         MENUITEM "&Open...\tCtrl+O",        ID_FILE_OPEN
         MENUITEM "Open &Remote...",         ID_FILE_OPEN_REMOTE
-        MENUITEM "Save &As...\tCtrl+S",     ID_FILE_SAVE_AS, GRAYED
+        POPUP "Recent &Files"
+        BEGIN
+            MENUITEM "(Empty)",             ID_FILE_RECENT_EMPTY, GRAYED
+        END
+        MENUITEM "Save &As...\tCtrl+S",     ID_FILE_SAVE_AS
         MENUITEM SEPARATOR
         MENUITEM "&Previous\tLeft",         ID_FILE_PREV
         MENUITEM "&Next\tRight",            ID_FILE_NEXT
@@ -66,46 +70,29 @@ BEGIN
     END
 END
 
-/* Status bar hints - IDs match command IDs */
+/* Command hints - "long\nshort" where short is used for toolbar tooltips. */
 STRINGTABLE
 BEGIN
-    ID_FILE_OPEN        "Open an image file"
-    ID_FILE_OPEN_REMOTE "Connect to a remote server and open an image"
-    ID_FILE_SAVE_AS     "Save the image with a new name"
-    ID_FILE_PREV        "Show previous image in directory"
-    ID_FILE_NEXT        "Show next image in directory"
+    ID_FILE_OPEN        "Open an image file\nOpen"
+    ID_FILE_OPEN_REMOTE "Connect to a remote server and open an image\nOpen Remote"
+    ID_FILE_SAVE_AS     "Save the image with a new name\nSave As"
+    ID_FILE_PREV        "Show previous image in directory\nPrev"
+    ID_FILE_NEXT        "Show next image in directory\nNext"
     ID_FILE_EXIT        "Exit the application"
     ID_EDIT_UNDO        "Undo the last action"
     ID_EDIT_CUT         "Cut the selection to the Clipboard"
     ID_EDIT_COPY        "Copy the selection to the Clipboard"
     ID_EDIT_PASTE       "Insert Clipboard contents"
-    ID_VIEW_ZOOMIN      "Zoom in"
-    ID_VIEW_ZOOMOUT     "Zoom out"
-    ID_VIEW_ZOOMTO      "Zoom to a specific ratio"
-    ID_VIEW_ZOOMREM     "Remember the current zoom level"
-    ID_VIEW_ZOOMMODE    "Select zoom fit mode"
-    ID_VIEW_ZOOM        "Zoom"
-    ID_VIEW_FILELIST    "Show or hide the file list panel"
-    ID_HELP_ABOUT       "Show information about obZrv"
-    ID_FILE_REFRESH     "Rescan directory; open next file if current is gone"
-END
-
-/* Toolbar tooltip labels - IDs are command ID + STRING_TIP_OFFSET */
-STRINGTABLE
-BEGIN
-    ID_FILE_OPEN        + 100  "Open"
-    ID_FILE_OPEN_REMOTE + 100  "Open Remote"
-    ID_FILE_PREV        + 100  "Prev"
-    ID_FILE_NEXT        + 100  "Next"
-    ID_VIEW_ZOOMIN      + 100  "Zoom In"
-    ID_VIEW_ZOOMTO      + 100  "Zoom To"
-    ID_VIEW_ZOOMOUT     + 100  "Zoom Out"
-    ID_VIEW_ZOOMMODE    + 100  "Zoom Mode"
-    ID_VIEW_ZOOMREM     + 100  "Remember Zoom"
-    ID_VIEW_ZOOM        + 100  "Zoom"
-    ID_VIEW_FILELIST    + 100  "File List"
-    ID_HELP_ABOUT       + 100  "About"
-    ID_FILE_REFRESH     + 100  "Refresh"
+    ID_VIEW_ZOOMIN      "Zoom in\nZoom In"
+    ID_VIEW_ZOOMOUT     "Zoom out\nZoom Out"
+    ID_VIEW_ZOOMTO      "Zoom to a specific ratio\nZoom To"
+    ID_VIEW_ZOOMREM     "Remember the current zoom level\nRemember Zoom"
+    ID_VIEW_ZOOMMODE    "Select zoom fit mode\nZoom Mode"
+    ID_VIEW_ZOOM        "Zoom\nZoom"
+    ID_VIEW_FILELIST    "Show or hide the file list panel\nFile List"
+    ID_HELP_ABOUT       "Show information about obZrv\nAbout"
+    ID_FILE_REFRESH     "Rescan directory; open next file if current is gone\nRefresh"
+    ID_FILE_RECENT_EMPTY "No recent files"
 END
 
 /* Dialog: Connect to remote server */
@@ -138,6 +125,7 @@ END
 /* Keyboard accelerators */
 IDR_MAINMENU ACCELERATORS
 BEGIN
+    "S",         ID_FILE_SAVE_AS,     VIRTKEY, CONTROL
     VK_DELETE,   ID_FILE_DELETE,      VIRTKEY
     VK_DELETE,   ID_FILE_DELETE_PERM, VIRTKEY, SHIFT
     VK_F5,       ID_FILE_REFRESH,     VIRTKEY

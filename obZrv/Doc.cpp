@@ -25,15 +25,18 @@
 #include <shlwapi.h>
 #include <stdint.h>
 #include <algorithm>
+#include <cctype>
 #include <set>
 #include <string.h>
 #include "Doc.h"
+#include "filetype.h"
 #include "../unifs/local_fs.hpp"
 #include "GdiPlusCodec.h"
 #include "WebpCodec.h"
 #include "ImageView.h"
 #include "FileList.h"
 #include "strutil.h"
+#include "ZDataFile.hpp"
 #include "../unifs/local_fs.hpp"
 
 #undef max
@@ -44,12 +47,26 @@ static const wchar_t DIRSEP = L'/';
 static GdiPlusCodec gdiplusCodec;
 static WebpCodec    webpCodec;
 
+static Codec *codecs[] = { &webpCodec, &gdiplusCodec };
+static std::set<std::string> supportedTypes;
+
 uint32_t Doc::_bgColor = RGB(250, 250, 250);
 
 int Doc::initCodec()
 {
-	if (gdiplusCodec.init() != 0)
-		return -1;
+	supportedTypes.clear();
+	for (Codec *codec : codecs)
+	{
+		if (codec->init() != 0)
+			return -1;
+		const std::set<std::string> &types = codec->getTypes();
+		supportedTypes.insert(types.begin(), types.end());
+	}
+	for (char c = '0'; c <= '9'; ++c)
+	{
+		char ext[4] = { 'z', c, '?', '\0' };
+		supportedTypes.insert(ext);
+	}
 	return 0;
 }
 
@@ -78,6 +95,8 @@ int Doc::open(std::shared_ptr<UniFs> unifs, const char *path, int cmdid, bool fo
 {
 	if (!unifs)	// reuse the same ori fs
 		unifs = _unifs;
+	if (!unifs)
+		return IM_READFILE_ERR;
 	bool scanned = false;
 	std::string prevDir = _dir;
 	int prevIdx = _diridx;
@@ -145,30 +164,66 @@ int Doc::open(std::shared_ptr<UniFs> unifs, const char *path, int cmdid, bool fo
 
 	std::string fullPath = scanned ? (_dir + "/" + targetFile) : std::string(path);
 	{
-		int res = IM_FAIL;
-		const char *dot = strrchr(fullPath.c_str(), '.');
-		if (dot && _stricmp(dot, ".webp") == 0)
-			res = webpCodec.open(uf.get(), &_image, _bgColor);
-		if (res != IM_OK)
-			res = gdiplusCodec.open(uf.get(), &_image, _bgColor);
-		if (res == IM_OK)
+		std::string ext = getExt(fullPath.c_str());
+		if (ZDataFile::isZDataExt(ext))
+			uf.reset(new ZDataFile(std::move(uf)));
+
+		int res = IM_NOT_SUPPORTED;
+		for (Codec *codec : codecs)
 		{
-			_path = fullPath;
-			if (_view)
-				_view->onFileOpened(cmdid);
-			_curframe  = 0;
-			_curloop   = 0;
-			_animated  = _image->isAnim();
-			if (_animated)
+			if (codec->getTypes().count(ext) != 0)
 			{
-				_tmstart    = GetTickCount();
-				_totaldelay = _image->getFrameDelay();
-				if (_view)
-					SetTimer(_view->hwnd(), (UINT_PTR)this, (UINT)_image->getFrameDelay(), onAnimate);
+				uf->seek(0, SEEK_SET);
+				res = codec->open(uf.get(), &_image, _bgColor);
+				if (res == IM_OK)
+					break;
+				delete _image;
+				_image = NULL;
 			}
-			if (_view)
-				_view->updateStatus();
 		}
+
+		if (res != IM_OK)
+		{
+			std::string detectedExt = filetype(uf.get());
+			if (detectedExt != "UNK" && detectedExt != ext)
+			{
+				for (Codec *codec : codecs)
+				{
+					if (codec->getTypes().count(detectedExt) != 0)
+					{
+						uf->seek(0, SEEK_SET);
+						res = codec->open(uf.get(), &_image, _bgColor);
+						if (res == IM_OK)
+							break;
+						delete _image;
+						_image = NULL;
+					}
+				}
+			}
+		}
+
+		if (res != IM_OK)
+		{
+			delete _image;
+			_image = NULL;
+			return res;
+		}
+
+		_path = fullPath;
+		if (_view)
+			_view->onFileOpened(cmdid);
+		_curframe  = 0;
+		_curloop   = 0;
+		_animated  = _image->isAnim();
+		if (_animated)
+		{
+			_tmstart    = GetTickCount();
+			_totaldelay = _image->getFrameDelay();
+			if (_view)
+				SetTimer(_view->hwnd(), (UINT_PTR)this, (UINT)_image->getFrameDelay(), onAnimate);
+		}
+		if (_view)
+			_view->updateStatus();
 	}
 
 	// --- Step 3: rescan directory / update _diridx ---
@@ -237,23 +292,15 @@ int Doc::updateDir(UniFs *fs, const char *filepath, bool preservelast)
 	if (!iter)
 		return -1;
 
-	static const std::set<std::wstring> acceptext = {
-		L"bmp", L"jpg", L"jpeg", L"gif", L"png", L"tiff", L"tif", L"ico", L"webp"
-	};
-
 	const DirEntry* ent;
 	while ((ent = iter.next()) != nullptr)
 	{
 		if (ent->type() != DirEntry::FILE)
 			continue;
+		std::string ext = getExt(ent->name());
+		if (ext.empty() || !Doc::isSupportedExt(ext))
+			continue;
 		std::wstring wname = utf8_to_wstr(ent->name());
-		const wchar_t *dot = wcsrchr(wname.c_str(), L'.');
-		if (!dot)
-			continue;
-		std::wstring ext(dot + 1);
-		std::transform(ext.begin(), ext.end(), ext.begin(), towlower);
-		if (acceptext.count(ext) == 0)
-			continue;
 		_dirfiles.push_back(wname);
 	}
 
@@ -406,6 +453,32 @@ int Doc::refreshDir()
 	return open(_unifs, _path.c_str(), -1, true, +1);
 }
 
+int Doc::saveAsLocal(const wchar_t *path)
+{
+	if (_path.empty() || !_unifs || !path || !*path)
+		return -1;
+
+	auto src = _unifs->openfile(_path.c_str(), "rb");
+	if (!src)
+		return -1;
+
+	std::string dstPath = to_unipath(path);
+	auto dst = LocalFs::open()->openfile(dstPath.c_str(), "wb");
+	if (!dst)
+		return -1;
+
+	char buf[64 * 1024];
+	for (;;) {
+		size_t n = src->read(buf, sizeof(buf));
+		if (n == 0)
+			break;
+		if (dst->write(buf, n) != n)
+			return -1;
+	}
+
+	return dst->close();
+}
+
 int Doc::removeCurrentFile(bool shift){
 	if (_diridx < 0 || _diridx >= (int)_dirfiles.size())
 		return -1;
@@ -518,4 +591,14 @@ int Doc::removeCurrentFile(bool shift){
 	if (_fileList) _fileList->removeItem(delIdx, -1);
 	open(_unifs, nextPath.c_str(), -1, false, dirHint);
 	return 0;
+}
+
+const std::set<std::string> &Doc::getSupportedTypes()
+{
+	return supportedTypes;
+}
+
+bool Doc::isSupportedExt(const std::string &ext)
+{
+	return supportedTypes.count(ext) != 0 || ZDataFile::isZDataExt(ext);
 }
