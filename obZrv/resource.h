@@ -18,6 +18,8 @@
  * strings and should provide display text at runtime.
  */
 
+#define IDC_STATIC          -1
+
 /* Icons */
 #define IDI_APPICON        101
 
@@ -43,7 +45,7 @@
 #define ID_VIEW_ZOOMMODE   1009  /* toolbar button: opens zoom-mode popup */
 
 /* Zoom mode sub-commands (contiguous for CheckMenuRadioItem) */
-#define ID_ZOOMMODE_W2I_ZOOMOUT  1010  /* Window Fit Image, ZoomOut if too Large */
+#define ID_ZOOMMODE_W2I_ZOOMOUT  1010  /* Window Fit Image, ZoomOut if Large */
 #define ID_ZOOMMODE_W2I          1011  /* Window Fit Image, No Zoom              */
 #define ID_ZOOMMODE_I2W_ZOOMOUT  1012  /* Image Fit Window, ZoomOut Only         */
 #define ID_ZOOMMODE_I2W          1013  /* Image Fit Window                       */
@@ -67,6 +69,7 @@
 
 /* Refresh: rescan directory; if current file gone, behave like delete */
 #define ID_FILE_REFRESH      1026
+#define ID_VIEW_SLIDESHOW    1028
 
 /* Recent files submenu */
 #define ID_FILE_RECENT_EMPTY 1027
@@ -85,3 +88,28 @@
 #define IDC_PATHBAR        503
 #define IDC_FILELIST       504
 #define IDC_BTN_UP         505
+
+/* Dialog: Slide show */
+#define IDD_SLIDESHOW              403
+#define IDC_SS_SOURCE_CURRENT      510
+#define IDC_SS_SOURCE_CUSTOM       511
+#define IDC_SS_INTERVAL            512
+#define IDC_SS_ORDER_NORMAL        513
+#define IDC_SS_ORDER_REVERSE       514
+#define IDC_SS_ORDER_RANDOM        515
+#define IDC_SS_REPEAT_FOREVER      516
+#define IDC_SS_REPEAT_COUNT        517
+#define IDC_SS_ROUNDS              518
+#define IDC_SS_ZOOM                519
+#define IDC_SS_CUSTOM_GROUP        520
+#define IDC_SS_FILELIST            521
+#define IDC_SS_ADD_FILES           522
+#define IDC_SS_ADD_FOLDER          523
+#define IDC_SS_MOVE_UP             524
+#define IDC_SS_MOVE_DOWN           525
+#define IDC_SS_FULLSCREEN          526
+#define IDC_SS_WINDOWED            527
+
+/* MainWnd private messages */
+#define WM_APP_SLIDESHOW_RESET_TIMER (WM_APP + 2)
+#define WM_APP_SLIDESHOW_STOP        (WM_APP + 3)

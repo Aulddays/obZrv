@@ -110,7 +110,7 @@
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>user32.lib;gdi32.lib;comctl32.lib;shell32.lib;shlwapi.lib;ole32.lib;gdiplus.lib;ws2_32.lib;$(ProjectDir)webp\libwebp_x64_dll.lib;$(ProjectDir)webp\libwebpdemux_x64_dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>user32.lib;gdi32.lib;comctl32.lib;comdlg32.lib;shell32.lib;shlwapi.lib;ole32.lib;gdiplus.lib;ws2_32.lib;$(ProjectDir)webp\libwebp_x64_dll.lib;$(ProjectDir)webp\libwebpdemux_x64_dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -152,7 +152,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalDependencies>user32.lib;gdi32.lib;comctl32.lib;shell32.lib;shlwapi.lib;ole32.lib;gdiplus.lib;ws2_32.lib;$(ProjectDir)webp\libwebp_x64_dll.lib;$(ProjectDir)webp\libwebpdemux_x64_dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>user32.lib;gdi32.lib;comctl32.lib;comdlg32.lib;shell32.lib;shlwapi.lib;ole32.lib;gdiplus.lib;ws2_32.lib;$(ProjectDir)webp\libwebp_x64_dll.lib;$(ProjectDir)webp\libwebpdemux_x64_dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -176,6 +176,7 @@
     </ClCompile>
     <ClCompile Include="RecentFileRegistry.cpp" />
     <ClCompile Include="RemoteBrowserDlg.cpp" />
+    <ClCompile Include="SlideShowDlg.cpp" />
     <ClCompile Include="StatusBar.cpp" />
     <ClCompile Include="Toolbar.cpp" />
     <ClCompile Include="WebpCodec.cpp" />
@@ -200,6 +201,7 @@
     <ClInclude Include="RecentFileRegistry.h" />
     <ClInclude Include="RemoteBrowserDlg.h" />
     <ClInclude Include="resource.h" />
+    <ClInclude Include="SlideShowDlg.h" />
     <ClInclude Include="StatusBar.h" />
     <ClInclude Include="strutil.h" />
     <ClInclude Include="Toolbar.h" />

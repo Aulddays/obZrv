@@ -121,7 +121,7 @@ bool Toolbar::Create(HWND hParent, HINSTANCE hInst)
 		{IMG_ZOOMMODE,    ID_VIEW_ZOOMMODE,    TBSTATE_ENABLED, BTNS_WHOLEDROPDOWN, {0}, 0, 0},
 		{IMG_ZOOMOUT,     ID_VIEW_ZOOMOUT,     TBSTATE_ENABLED, BTNS_BUTTON, {0}, 0, 0},
 		{IMG_ZOOMREM,     ID_VIEW_ZOOMREM,     0,               BTNS_BUTTON, {0}, 0, 0},
-		{IMG_ZOOM,        ID_VIEW_ZOOM,        0,               BTNS_BUTTON, {0}, 0, 0},
+		{IMG_ZOOM,        ID_VIEW_SLIDESHOW,   TBSTATE_ENABLED, BTNS_BUTTON, {0}, 0, 0},
 		{0,               0,                   TBSTATE_ENABLED, BTNS_SEP,    {0}, 0, 0},
 	};
 	SendMessage(m_hwnd, TB_ADDBUTTONS,
@@ -488,6 +488,7 @@ HBITMAP Toolbar::GetMenuIcon(UINT cmdId, int sz) const
 	case ID_VIEW_ZOOMMODE: idx = IMG_ZOOMMODE; break;
 	case ID_VIEW_ZOOMREM:  idx = IMG_ZOOMREM;  break;
 	case ID_VIEW_ZOOM:     idx = IMG_ZOOM;     break;
+	case ID_VIEW_SLIDESHOW: idx = IMG_ZOOM;     break;
 	case ID_VIEW_FILELIST:    idx = IMG_FILELIST;    break;
 	case ID_FILE_OPEN_REMOTE: idx = IMG_OPENREMOTE;  break;
 	case ID_FILE_REFRESH:     idx = IMG_REFRESH;     break;

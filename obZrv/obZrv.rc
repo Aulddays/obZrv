@@ -52,7 +52,7 @@ BEGIN
         MENUITEM "Remember Zoom Level",     ID_VIEW_ZOOMREM, GRAYED
         POPUP "&Zoom Mode"
         BEGIN
-            MENUITEM "Window Fit Image, ZoomOut if too Large",  ID_ZOOMMODE_W2I_ZOOMOUT
+            MENUITEM "Window Fit Image, ZoomOut if Large",  ID_ZOOMMODE_W2I_ZOOMOUT
             MENUITEM "Window Fit Image, No Zoom",               ID_ZOOMMODE_W2I
             MENUITEM SEPARATOR
             MENUITEM "Image Fit Window, ZoomOut Only",          ID_ZOOMMODE_I2W_ZOOMOUT
@@ -63,6 +63,8 @@ BEGIN
         MENUITEM "Zoom",                    ID_VIEW_ZOOM, GRAYED
         MENUITEM SEPARATOR
         MENUITEM "&File list",              ID_VIEW_FILELIST
+        MENUITEM SEPARATOR
+        MENUITEM "Slide &Show...",          ID_VIEW_SLIDESHOW
     END
     POPUP "&Help"
     BEGIN
@@ -90,6 +92,7 @@ BEGIN
     ID_VIEW_ZOOMMODE    "Select zoom fit mode\nZoom Mode"
     ID_VIEW_ZOOM        "Zoom\nZoom"
     ID_VIEW_FILELIST    "Show or hide the file list panel\nFile List"
+    ID_VIEW_SLIDESHOW   "Start a slide show\nSlide Show"
     ID_HELP_ABOUT       "Show information about obZrv\nAbout"
     ID_FILE_REFRESH     "Rescan directory; open next file if current is gone\nRefresh"
     ID_FILE_RECENT_EMPTY "No recent files"
@@ -105,6 +108,47 @@ BEGIN
     COMBOBOX        IDC_HOST,                   50,  8, 136, 80, CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_VSCROLL | WS_TABSTOP
     DEFPUSHBUTTON   "Connect",      IDOK,       34, 34,  50, 14
     PUSHBUTTON      "Cancel",       IDCANCEL,   92, 34,  50, 14
+END
+
+
+/* Dialog: Slide show */
+IDD_SLIDESHOW DIALOGEX 0, 0, 360, 268
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME
+CAPTION "Slide Show"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    GROUPBOX        "Files",IDC_STATIC,8,8,148,34
+    AUTORADIOBUTTON "Current folder", IDC_SS_SOURCE_CURRENT,16,22,63,10, WS_GROUP | WS_TABSTOP
+    AUTORADIOBUTTON "Custom  -->",IDC_SS_SOURCE_CUSTOM, 87,22,50,10
+
+    GROUPBOX        "Switch",IDC_STATIC,8,48,148,31
+    LTEXT           "Interval (sec):",IDC_STATIC,17,61,72,10
+    EDITTEXT        IDC_SS_INTERVAL,76,59,36,14,ES_AUTOHSCROLL | ES_NUMBER
+
+    GROUPBOX        "Order",IDC_STATIC,8,84,148,40
+    AUTORADIOBUTTON "Normal",IDC_SS_ORDER_NORMAL,   16,101,46,10, WS_GROUP | WS_TABSTOP
+    AUTORADIOBUTTON "Reverse",IDC_SS_ORDER_REVERSE, 64,101,44,10
+    AUTORADIOBUTTON "Random",IDC_SS_ORDER_RANDOM,   110,101,42,10
+
+    GROUPBOX        "Repeat",IDC_STATIC,8,130,148,37
+    AUTORADIOBUTTON "Forever",IDC_SS_REPEAT_FOREVER, 19,145,44,10, WS_GROUP | WS_TABSTOP
+    AUTORADIOBUTTON "Rounds:",IDC_SS_REPEAT_COUNT,   74,145,38,10
+    EDITTEXT        IDC_SS_ROUNDS,117,144,24,14,ES_AUTOHSCROLL | ES_NUMBER
+
+    GROUPBOX        "Zoom",IDC_STATIC,8,173,149,38
+    LTEXT           "Mode:",IDC_STATIC,15,189,30,10
+    COMBOBOX        IDC_SS_ZOOM,38,188,112,80,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+
+    GROUPBOX        "Custom Files Config",IDC_SS_CUSTOM_GROUP,164,8,188,204
+    PUSHBUTTON      "Add file",IDC_SS_ADD_FILES,171,22,39,14
+    PUSHBUTTON      "Add folder",IDC_SS_ADD_FOLDER,211,22,43,14
+    PUSHBUTTON      "Move up",IDC_SS_MOVE_UP,255,22,43,14
+    PUSHBUTTON      "Move down",IDC_SS_MOVE_DOWN,299,22,44,14
+    LISTBOX         IDC_SS_FILELIST,173,40,168,167,LBS_EXTENDEDSEL | WS_VSCROLL | WS_TABSTOP
+
+    PUSHBUTTON      "Start\n Full Screen",IDC_SS_FULLSCREEN,28,227,90,26
+    PUSHBUTTON      "Start\n Windowed",IDC_SS_WINDOWED,134,227,90,26
+    PUSHBUTTON      "Cancel",IDCANCEL,240,227,90,26
 END
 
 
@@ -133,7 +177,6 @@ BEGIN
     VK_PRIOR,    ID_FILE_PREV,        VIRTKEY
     VK_RIGHT,    ID_FILE_NEXT,        VIRTKEY
     VK_NEXT,     ID_FILE_NEXT,        VIRTKEY
-    VK_ESCAPE,   ID_FILE_EXIT,        VIRTKEY
     VK_ADD,      ID_VIEW_ZOOMIN,      VIRTKEY
     "=",         ID_VIEW_ZOOMIN,      ASCII
     VK_SUBTRACT, ID_VIEW_ZOOMOUT,     VIRTKEY

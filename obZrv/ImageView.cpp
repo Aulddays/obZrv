@@ -45,6 +45,13 @@ static inline bool rectEq(const RECT &a, const RECT &b)
 	{ return a.left == b.left && a.top == b.top &&
 			 a.right == b.right && a.bottom == b.bottom; }
 
+static void NotifyManualNavigation(HWND hwnd)
+{
+	HWND top = GetAncestor(hwnd, GA_ROOT);
+	if (top)
+		PostMessage(top, WM_APP_SLIDESHOW_RESET_TIMER, 0, 0);
+}
+
 // Fill a rectangle with a solid colour using an existing brush
 static inline void fillRect(HDC hdc, int x, int y, int w, int h, HBRUSH br)
 {
@@ -672,13 +679,15 @@ LRESULT ImageView::HandleMessage(UINT msg, WPARAM wp, LPARAM lp)
 		if (!_doc) break;
 
 		if ((nChar == VK_LEFT || nChar == VK_UP || nChar == VK_PRIOR) && !bshift && !bctrl && !balt)
-		{ _doc->navigate(Doc::NAV_PREV); return 0; }
+		{ if (_doc->navigate(Doc::NAV_PREV) == IM_OK) NotifyManualNavigation(m_hwnd); return 0; }
 		if ((nChar == VK_RIGHT || nChar == VK_DOWN || nChar == VK_NEXT) && !bshift && !bctrl && !balt)
-		{ _doc->navigate(Doc::NAV_NEXT); return 0; }
+		{ if (_doc->navigate(Doc::NAV_NEXT) == IM_OK) NotifyManualNavigation(m_hwnd); return 0; }
 		if (nChar == VK_HOME)
-		{ _doc->navigate(Doc::NAV_FIRST); return 0; }
+		{ if (_doc->navigate(Doc::NAV_FIRST) == IM_OK) NotifyManualNavigation(m_hwnd); return 0; }
 		if (nChar == VK_END)
-		{ _doc->navigate(Doc::NAV_LAST);  return 0; }
+		{ if (_doc->navigate(Doc::NAV_LAST) == IM_OK) NotifyManualNavigation(m_hwnd);  return 0; }
+		if (nChar == VK_ESCAPE)
+		{ PostMessage(GetAncestor(m_hwnd, GA_ROOT), WM_COMMAND, ID_FILE_EXIT, 0); return 0; }
 		if ((nChar == VK_OEM_PLUS  || nChar == VK_ADD) && !balt)
 		{ zoom(1);  return 0; }
 		if ((nChar == VK_OEM_MINUS || nChar == VK_SUBTRACT) && !balt)
@@ -689,8 +698,8 @@ LRESULT ImageView::HandleMessage(UINT msg, WPARAM wp, LPARAM lp)
 	case WM_MOUSEWHEEL:
 	{
 		int delta = GET_WHEEL_DELTA_WPARAM(wp);
-		if (_doc)
-			_doc->navigate(delta > 0 ? Doc::NAV_PREV : Doc::NAV_NEXT);
+		if (_doc && _doc->navigate(delta > 0 ? Doc::NAV_PREV : Doc::NAV_NEXT) == IM_OK)
+			NotifyManualNavigation(m_hwnd);
 		return 0;
 	}
 

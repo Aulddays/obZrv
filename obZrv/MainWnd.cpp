@@ -27,6 +27,8 @@
 #include "dpi.h"
 #include "config.h"
 #include <shellapi.h>
+#include <stdlib.h>
+#include <time.h>
 
 #undef max
 #undef min
@@ -151,6 +153,18 @@ bool MainWnd::Create(HINSTANCE hInst, int nShow)
 	m_recentMenu      = NULL;
 	m_fileListVisible = true;
 	m_zoomMode        = ID_ZOOMMODE_W2I_ZOOMOUT;
+	m_savedToolbarVisible = true;
+	m_savedStatusBarVisible = true;
+	m_savedFileListVisible = true;
+	m_slideShowActive = false;
+	m_slideShowFullscreen = false;
+	m_slideShowOpening = false;
+	m_slideShowTimer = 0;
+	m_slideShowIndex = 0;
+	m_slideShowRound = 0;
+	m_savedStyle = 0;
+	m_savedExStyle = 0;
+	ZeroMemory(&m_savedPlacement, sizeof(m_savedPlacement));
 
 	WNDCLASSEX wc   = {};
 	wc.cbSize        = sizeof(wc);
@@ -267,6 +281,13 @@ LRESULT MainWnd::HandleMessage(UINT msg, WPARAM wp, LPARAM lp)
 		OnMenuSelect(LOWORD(wp), HIWORD(wp));
 		return 0;
 
+	case WM_TIMER:
+		if (wp == m_slideShowTimer) {
+			AdvanceSlideShow();
+			return 0;
+		}
+		break;
+
 	case WM_INITMENUPOPUP:
 	{
 		/* Radio-check the active zoom mode when the Zoom Mode submenu opens.
@@ -294,6 +315,17 @@ LRESULT MainWnd::HandleMessage(UINT msg, WPARAM wp, LPARAM lp)
 
 	case WM_DPICHANGED:
 		OnDpiChanged(reinterpret_cast<const RECT *>(lp));
+		return 0;
+
+	case WM_APP_SLIDESHOW_RESET_TIMER:
+		if (m_slideShowActive && !m_slideShowOpening) {
+			SyncSlideShowIndexToCurrent();
+			ResetSlideShowTimer();
+		}
+		return 0;
+
+	case WM_APP_SLIDESHOW_STOP:
+		StopSlideShow();
 		return 0;
 
 	case WM_APP_SETINFO:
@@ -325,6 +357,11 @@ LRESULT MainWnd::HandleMessage(UINT msg, WPARAM wp, LPARAM lp)
 
 void MainWnd::OnSize(int cx, int cy)
 {
+	if (m_slideShowFullscreen) {
+		m_mainView.Layout(0, 0, cx, cy);
+		return;
+	}
+
 	m_toolbar.AutoSize();
 	m_statusBar.OnParentSize();
 
@@ -402,15 +439,20 @@ void MainWnd::OnCommand(UINT id)
 		break;
 
 	case ID_FILE_EXIT:
-		DestroyWindow(m_hwnd);
+		if (m_slideShowActive || m_slideShowFullscreen)
+			StopSlideShow();
+		else
+			DestroyWindow(m_hwnd);
 		break;
 
 	case ID_FILE_PREV:
-		m_doc.navigate(Doc::NAV_PREV);
+		if (m_doc.navigate(Doc::NAV_PREV) == IM_OK)
+			PostMessage(m_hwnd, WM_APP_SLIDESHOW_RESET_TIMER, 0, 0);
 		break;
 
 	case ID_FILE_NEXT:
-		m_doc.navigate(Doc::NAV_NEXT);
+		if (m_doc.navigate(Doc::NAV_NEXT) == IM_OK)
+			PostMessage(m_hwnd, WM_APP_SLIDESHOW_RESET_TIMER, 0, 0);
 		break;
 
 	case ID_FILE_DELETE:
@@ -435,6 +477,10 @@ void MainWnd::OnCommand(UINT id)
 
 	case ID_VIEW_ZOOMMODE:
 		ShowZoomModeMenu();
+		break;
+
+	case ID_VIEW_SLIDESHOW:
+		ShowSlideShowDialog();
 		break;
 
 	case ID_VIEW_FILELIST:
@@ -504,6 +550,7 @@ void MainWnd::OnNotify(LPARAM lp)
 
 void MainWnd::OnDestroy()
 {
+	StopSlideShow();
 	SaveWindowPlacement();
 	PostQuitMessage(0);
 }
@@ -736,6 +783,226 @@ void MainWnd::ShowZoomModeMenu()
 				   pt.x, pt.y, 0, m_hwnd, NULL);
 }
 
+
+void MainWnd::ShowSlideShowDialog()
+{
+	SlideShowDlg::Options options = m_slideShowOptions;
+	bool hasCurrentFolder = m_doc.getDirIdx() >= 0 && m_doc.getDirCount() > 0;
+	if (SlideShowDlg::Show(m_hwnd, m_hInst, hasCurrentFolder, m_zoomMode, options))
+		StartSlideShow(options);
+}
+
+void MainWnd::BuildSlideShowFiles()
+{
+	m_slideShowFiles.clear();
+
+	if (m_slideShowOptions.source == SlideShowDlg::SOURCE_CUSTOM) {
+		for (const auto &item : m_slideShowOptions.customItems)
+			m_slideShowFiles.push_back(item.path);
+		if (m_slideShowOptions.order == SlideShowDlg::ORDER_REVERSE)
+			std::reverse(m_slideShowFiles.begin(), m_slideShowFiles.end());
+		return;
+	}
+
+	int cnt = m_doc.getDirCount();
+	int idx = m_doc.getDirIdx();
+	if (cnt <= 0 || idx < 0)
+		return;
+
+	std::string dir = m_doc.getDir();
+	if (m_slideShowOptions.order == SlideShowDlg::ORDER_REVERSE) {
+		for (int i = idx; i >= 0; i--)
+			m_slideShowFiles.push_back(dir + "/" + wstr_to_utf8(m_doc.getDirFile(i).c_str()));
+		for (int i = cnt - 1; i > idx; i--)
+			m_slideShowFiles.push_back(dir + "/" + wstr_to_utf8(m_doc.getDirFile(i).c_str()));
+	} else {
+		for (int i = idx; i < cnt; i++)
+			m_slideShowFiles.push_back(dir + "/" + wstr_to_utf8(m_doc.getDirFile(i).c_str()));
+		for (int i = 0; i < idx; i++)
+			m_slideShowFiles.push_back(dir + "/" + wstr_to_utf8(m_doc.getDirFile(i).c_str()));
+	}
+}
+
+void MainWnd::ShuffleSlideShowFiles()
+{
+	if (m_slideShowFiles.size() < 2)
+		return;
+	srand((unsigned)time(NULL));
+	for (int i = (int)m_slideShowFiles.size() - 1; i > 0; i--) {
+		int j = rand() % (i + 1);
+		std::swap(m_slideShowFiles[i], m_slideShowFiles[j]);
+	}
+}
+
+void MainWnd::StartSlideShow(const SlideShowDlg::Options &options)
+{
+	StopSlideShow();
+	m_slideShowOptions = options;
+	BuildSlideShowFiles();
+	if (m_slideShowFiles.empty()) {
+		MessageBoxW(m_hwnd, L"No images are available for the slide show.", L"Slide Show", MB_ICONWARNING | MB_OK);
+		return;
+	}
+	if (m_slideShowOptions.order == SlideShowDlg::ORDER_RANDOM)
+		ShuffleSlideShowFiles();
+
+	m_slideShowActive = true;
+	m_slideShowIndex = 0;
+	m_slideShowRound = 0;
+	m_mainView.imageView().setZoomMode(m_slideShowOptions.zoomMode);
+	if (m_slideShowOptions.start == SlideShowDlg::START_FULLSCREEN)
+		EnterSlideShowFullscreen();
+	if (OpenSlideShowCurrent())
+		ResetSlideShowTimer();
+	else
+		AdvanceSlideShow();
+}
+
+void MainWnd::StopSlideShow()
+{
+	if (m_slideShowTimer) {
+		KillTimer(m_hwnd, m_slideShowTimer);
+		m_slideShowTimer = 0;
+	}
+	LeaveSlideShowFullscreen();
+	m_slideShowActive = false;
+	m_slideShowFiles.clear();
+	RECT rc;
+	GetClientRect(m_hwnd, &rc);
+	OnSize(rc.right, rc.bottom);
+}
+
+void MainWnd::ResetSlideShowTimer()
+{
+	if (!m_slideShowActive)
+		return;
+	if (m_slideShowTimer)
+		KillTimer(m_hwnd, m_slideShowTimer);
+	m_slideShowTimer = 1;
+	SetTimer(m_hwnd, m_slideShowTimer, (UINT)m_slideShowOptions.intervalSec * 1000, NULL);
+}
+
+void MainWnd::SyncSlideShowIndexToCurrent()
+{
+	const std::string &path = m_doc.getPath();
+	if (path.empty())
+		return;
+	for (int i = 0; i < (int)m_slideShowFiles.size(); i++) {
+		if (m_slideShowFiles[i] == path) {
+			m_slideShowIndex = i;
+			return;
+		}
+	}
+}
+
+bool MainWnd::OpenSlideShowCurrent()
+{
+	if (m_slideShowIndex < 0 || m_slideShowIndex >= (int)m_slideShowFiles.size())
+		return false;
+	std::shared_ptr<UniFs> unifs;
+	if (m_slideShowOptions.source == SlideShowDlg::SOURCE_CUSTOM) {
+		auto local = LocalFs::open();
+		unifs.reset(local.release());
+	}
+
+	m_slideShowOpening = true;
+	int res = m_doc.open(unifs,
+		m_slideShowFiles[m_slideShowIndex].c_str(), -1, false, +1);
+	m_slideShowOpening = false;
+	if (res != IM_OK)
+		return false;
+	SetFocus(m_mainView.imageView().hwnd());
+	return true;
+}
+
+bool MainWnd::StepSlideShowIndex()
+{
+	m_slideShowIndex++;
+	if (m_slideShowIndex < (int)m_slideShowFiles.size())
+		return true;
+
+	m_slideShowRound++;
+	if (m_slideShowOptions.repeat == SlideShowDlg::REPEAT_COUNT &&
+		m_slideShowRound >= m_slideShowOptions.rounds) {
+		StopSlideShow();
+		return false;
+	}
+
+	m_slideShowIndex = 0;
+	if (m_slideShowOptions.order == SlideShowDlg::ORDER_RANDOM)
+		ShuffleSlideShowFiles();
+	return true;
+}
+
+void MainWnd::AdvanceSlideShow()
+{
+	if (!m_slideShowActive || m_slideShowFiles.empty())
+		return;
+
+	int attempts = (int)m_slideShowFiles.size();
+	do {
+		if (!StepSlideShowIndex())
+			return;
+		if (OpenSlideShowCurrent()) {
+			ResetSlideShowTimer();
+			return;
+		}
+	} while (--attempts > 0);
+
+	StopSlideShow();
+}
+
+void MainWnd::EnterSlideShowFullscreen()
+{
+	if (m_slideShowFullscreen)
+		return;
+	m_savedPlacement.length = sizeof(m_savedPlacement);
+	GetWindowPlacement(m_hwnd, &m_savedPlacement);
+	m_savedStyle = (DWORD)GetWindowLongPtr(m_hwnd, GWL_STYLE);
+	m_savedExStyle = (DWORD)GetWindowLongPtr(m_hwnd, GWL_EXSTYLE);
+	m_savedToolbarVisible = IsWindowVisible(m_toolbar.hwnd()) != FALSE;
+	m_savedStatusBarVisible = IsWindowVisible(m_statusBar.hwnd()) != FALSE;
+	m_savedFileListVisible = m_fileListVisible;
+
+	ShowWindow(m_toolbar.hwnd(), SW_HIDE);
+	ShowWindow(m_statusBar.hwnd(), SW_HIDE);
+	m_mainView.ShowFileList(false);
+
+	MONITORINFO mi = {};
+	mi.cbSize = sizeof(mi);
+	GetMonitorInfoW(MonitorFromWindow(m_hwnd, MONITOR_DEFAULTTONEAREST), &mi);
+	SetWindowLongPtr(m_hwnd, GWL_STYLE, m_savedStyle & ~WS_OVERLAPPEDWINDOW);
+	SetWindowPos(m_hwnd, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top,
+		mi.rcMonitor.right - mi.rcMonitor.left,
+		mi.rcMonitor.bottom - mi.rcMonitor.top,
+		SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+	SetMenu(m_hwnd, NULL);
+	DrawMenuBar(m_hwnd);
+	m_slideShowFullscreen = true;
+	RECT rc;
+	GetClientRect(m_hwnd, &rc);
+	OnSize(rc.right, rc.bottom);
+}
+
+void MainWnd::LeaveSlideShowFullscreen()
+{
+	if (!m_slideShowFullscreen)
+		return;
+	SetWindowLongPtr(m_hwnd, GWL_STYLE, m_savedStyle);
+	SetWindowLongPtr(m_hwnd, GWL_EXSTYLE, m_savedExStyle);
+	SetWindowPlacement(m_hwnd, &m_savedPlacement);
+	SetWindowPos(m_hwnd, NULL, 0, 0, 0, 0,
+		SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+	SetMenu(m_hwnd, m_menu.handle());
+	DrawMenuBar(m_hwnd);
+	ShowWindow(m_toolbar.hwnd(), m_savedToolbarVisible ? SW_SHOW : SW_HIDE);
+	ShowWindow(m_statusBar.hwnd(), m_savedStatusBarVisible ? SW_SHOW : SW_HIDE);
+	m_mainView.ShowFileList(m_savedFileListVisible);
+	m_slideShowFullscreen = false;
+	RECT rc;
+	GetClientRect(m_hwnd, &rc);
+	OnSize(rc.right, rc.bottom);
+}
 
 void MainWnd::ClearMenuBitmaps()
 {

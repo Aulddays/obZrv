@@ -19,6 +19,7 @@
 // along with obZrv. If not, see <https://www.gnu.org/licenses/>.
 
 #pragma once
+#include <string>
 #include <vector>
 #include "WndBase.h"
 #include "Menu.h"
@@ -31,6 +32,7 @@
 #include "ConnectDlg.h"
 #include "RemoteBrowserDlg.h"
 #include "RecentFileRegistry.h"
+#include "SlideShowDlg.h"
 
 /* Name of the main window class registered with Windows */
 #define MAINWND_CLASS TEXT("obZrvMain")
@@ -62,6 +64,21 @@ private:
 	int       m_zoomMode;   /* active ID_ZOOMMODE_* value */
 	std::vector<HBITMAP> m_menuBitmaps;  /* owned menu icon bitmaps */
 
+	bool      m_slideShowActive;
+	bool      m_slideShowFullscreen;
+	bool      m_slideShowOpening;
+	bool      m_savedToolbarVisible;
+	bool      m_savedStatusBarVisible;
+	bool      m_savedFileListVisible;
+	UINT_PTR  m_slideShowTimer;
+	SlideShowDlg::Options m_slideShowOptions;
+	std::vector<std::string> m_slideShowFiles;
+	int       m_slideShowIndex;
+	int       m_slideShowRound;
+	DWORD     m_savedStyle;
+	DWORD     m_savedExStyle;
+	WINDOWPLACEMENT m_savedPlacement;
+
 	bool OnCreate();
 	void OnDestroy();
 	void OnSize(int cx, int cy);
@@ -77,6 +94,18 @@ private:
 	void OpenRecentFile(UINT id);
 	void SaveAs();
 	void ShowZoomModeMenu();
+	void ShowSlideShowDialog();
+	void StartSlideShow(const SlideShowDlg::Options &options);
+	void StopSlideShow();
+	void ResetSlideShowTimer();
+	void SyncSlideShowIndexToCurrent();
+	bool OpenSlideShowCurrent();
+	bool StepSlideShowIndex();
+	void AdvanceSlideShow();
+	void BuildSlideShowFiles();
+	void ShuffleSlideShowFiles();
+	void EnterSlideShowFullscreen();
+	void LeaveSlideShowFullscreen();
 	void UpdateMenuIcons();    /* set/refresh menu item bitmaps from toolbar image list */
 	void ClearMenuBitmaps();   /* remove bitmaps from menu items and free them */
 };
