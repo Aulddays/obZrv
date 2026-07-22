@@ -32,14 +32,28 @@ private:
 // RemoteFs
 // ---------------------------------------------------------------------------
 
-RemoteFs::RemoteFs(std::shared_ptr<RemoteConn> conn)
-	: conn_(std::move(conn))
+RemoteFs::RemoteFs(const char* host, uint16_t port, std::shared_ptr<RemoteConn> conn)
+	: host_(host ? host : "")
+	, port_(port)
+	, conn_(std::move(conn))
+	, last_status_(STATUS_OK)
 {}
 
 std::unique_ptr<UniFs> RemoteFs::open(const char* host, uint16_t port) {
 	std::shared_ptr<RemoteConn> conn = RemoteConn::connect(host, port);
 	if (!conn) return std::unique_ptr<UniFs>();
-	return std::unique_ptr<UniFs>(new RemoteFs(std::move(conn)));
+	return std::unique_ptr<UniFs>(new RemoteFs(host, port, std::move(conn)));
+}
+
+bool RemoteFs::reconnect() {
+	std::shared_ptr<RemoteConn> conn = RemoteConn::connect(host_.c_str(), port_);
+	if (!conn) {
+		last_status_ = STATUS_ERR_GENERIC;
+		return false;
+	}
+	conn_ = std::move(conn);
+	last_status_ = STATUS_OK;
+	return true;
 }
 
 DirIter RemoteFs::readdir(const char* path) {
@@ -50,6 +64,7 @@ DirIter RemoteFs::readdir(const char* path) {
 
 	RemoteConn::Response resp =
 		conn_->send_request(CMD_FS_READDIR, payload.data(), (uint32_t)payload.size());
+	last_status_ = resp.status;
 
 	if (resp.status != STATUS_OK || resp.payload.size() < 4)
 		return DirIter();
@@ -100,6 +115,7 @@ std::unique_ptr<UniFile> RemoteFs::openfile(const char* path, const char* mode) 
 
 	RemoteConn::Response resp =
 		conn_->send_request(CMD_FILE_OPEN, payload.data(), (uint32_t)payload.size());
+	last_status_ = resp.status;
 	if (resp.status != STATUS_OK || resp.payload.size() < 4)
 		return std::unique_ptr<UniFile>();
 
@@ -115,5 +131,6 @@ int RemoteFs::removefile(const char* path) {
 
 	RemoteConn::Response resp =
 		conn_->send_request(CMD_FS_REMOVE, payload.data(), (uint32_t)payload.size());
+	last_status_ = resp.status;
 	return (resp.status == STATUS_OK) ? 0 : -1;
 }

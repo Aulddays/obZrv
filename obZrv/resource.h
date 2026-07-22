@@ -82,9 +82,8 @@
 /* Dialog: Connect to remote server */
 #define IDD_CONNECT        401
 #define IDC_HOST           501
+#define IDC_CONNECT        502
 
-/* Dialog: Remote file browser */
-#define IDD_REMOTE_BROWSER 402
 #define IDC_PATHBAR        503
 #define IDC_FILELIST       504
 #define IDC_BTN_UP         505

@@ -31,13 +31,14 @@
 #include "Doc.h"
 #include "filetype.h"
 #include "../unifs/local_fs.hpp"
+#include "../unifs/remote_fs.hpp"
+#include "../unifs/protocol.hpp"
 #include "GdiPlusCodec.h"
 #include "WebpCodec.h"
 #include "ImageView.h"
 #include "FileList.h"
 #include "strutil.h"
 #include "ZDataFile.hpp"
-#include "../unifs/local_fs.hpp"
 
 #undef max
 #undef min
@@ -51,6 +52,23 @@ static Codec *codecs[] = { &webpCodec, &gdiplusCodec };
 static std::set<std::string> supportedTypes;
 
 uint32_t Doc::_bgColor = RGB(250, 250, 250);
+
+static RemoteFs* asRemoteFs(UniFs *fs)
+{
+	return dynamic_cast<RemoteFs *>(fs);
+}
+
+static bool shouldReconnectRemote(UniFs *fs)
+{
+	RemoteFs *remote = asRemoteFs(fs);
+	return remote && remote->lastStatus() != STATUS_ERR_NOT_FOUND;
+}
+
+static bool reconnectRemoteOnce(UniFs *fs)
+{
+	RemoteFs *remote = asRemoteFs(fs);
+	return remote && remote->reconnect();
+}
 
 int Doc::initCodec()
 {
@@ -90,6 +108,18 @@ void Doc::close()
 	_unifs.reset();
 }
 
+void Doc::clearOpenState()
+{
+	close();
+	_path.clear();
+	_dir.clear();
+	_dirfiles.clear();
+	_prevFile.clear();
+	_curFile.clear();
+	if (_fileList) _fileList->rebuild();
+	if (_view)     _view->updateStatus();
+}
+
 
 int Doc::open(std::shared_ptr<UniFs> unifs, const char *path, int cmdid, bool forceScanDir, int dirHint)
 {
@@ -98,6 +128,7 @@ int Doc::open(std::shared_ptr<UniFs> unifs, const char *path, int cmdid, bool fo
 	if (!unifs)
 		return IM_READFILE_ERR;
 	bool scanned = false;
+	bool retriedRemote = false;
 	std::string prevDir = _dir;
 	int prevIdx = _diridx;
 	std::vector<std::wstring> oldFiles;
@@ -109,6 +140,19 @@ int Doc::open(std::shared_ptr<UniFs> unifs, const char *path, int cmdid, bool fo
 
 	// --- Step 1: obtain a readable UniFile ---
 	auto uf = unifs->openfile(path, "rb");
+	if (!uf && shouldReconnectRemote(unifs.get()))
+	{
+		retriedRemote = true;
+		if (!reconnectRemoteOnce(unifs.get()))
+		{
+			clearOpenState();
+			MessageBoxW(_view ? _view->hwnd() : NULL,
+						L"Could not reconnect to the remote server.",
+						L"Connection Failed", MB_OK | MB_ICONERROR);
+			return IM_FAIL;
+		}
+		uf = unifs->openfile(path, "rb");
+	}
 	if (!uf)	// open failed, try fallback
 	{
 		if (dirHint == INT_MIN)	// fallback disabled
@@ -116,15 +160,34 @@ int Doc::open(std::shared_ptr<UniFs> unifs, const char *path, int cmdid, bool fo
 
 		// Fallback: rescan and find nearest readable file.
 		oldFiles = _dirfiles;
-		updateDir(unifs.get(), path, false);
+		int dirRes = updateDir(unifs.get(), path, false);
+		if (dirRes != 0 && !retriedRemote && shouldReconnectRemote(unifs.get()))
+		{
+			retriedRemote = true;
+			if (!reconnectRemoteOnce(unifs.get()))
+			{
+				clearOpenState();
+				MessageBoxW(_view ? _view->hwnd() : NULL,
+							L"Could not reconnect to the remote server.",
+							L"Connection Failed", MB_OK | MB_ICONERROR);
+				return IM_FAIL;
+			}
+			dirRes = updateDir(unifs.get(), path, false);
+		}
 		scanned = true;
+
+		if (dirRes != 0)
+		{
+			clearOpenState();
+			MessageBoxW(_view ? _view->hwnd() : NULL,
+						L"Cannot open directory.",
+						L"Error", MB_OK | MB_ICONERROR);
+			return IM_FAIL;
+		}
 
 		if (_dirfiles.empty())
 		{
-			close();
-			_path.clear(); _dir.clear(); _prevFile.clear(); _curFile.clear();
-			if (_fileList) _fileList->rebuild();
-			if (_view)     _view->updateStatus();
+			clearOpenState();
 			MessageBoxW(_view ? _view->hwnd() : NULL,
 						L"No image files found in this folder.",
 						L"Info", MB_OK | MB_ICONINFORMATION);
@@ -150,6 +213,19 @@ int Doc::open(std::shared_ptr<UniFs> unifs, const char *path, int cmdid, bool fo
 
 		std::string newPath = _dir + "/" + targetFile;
 		uf = unifs->openfile(newPath.c_str(), "rb");
+		if (!uf && !retriedRemote && shouldReconnectRemote(unifs.get()))
+		{
+			retriedRemote = true;
+			if (!reconnectRemoteOnce(unifs.get()))
+			{
+				clearOpenState();
+				MessageBoxW(_view ? _view->hwnd() : NULL,
+							L"Could not reconnect to the remote server.",
+							L"Connection Failed", MB_OK | MB_ICONERROR);
+				return IM_FAIL;
+			}
+			uf = unifs->openfile(newPath.c_str(), "rb");
+		}
 		if (!uf)	// still failed, give up
 		{
 			if (_fileList)
@@ -230,7 +306,28 @@ int Doc::open(std::shared_ptr<UniFs> unifs, const char *path, int cmdid, bool fo
 	if (forceScanDir && !scanned)	// rescan
 	{
 		oldFiles = _dirfiles;
-		updateDir(_unifs.get(), path, false);
+		int dirRes = updateDir(_unifs.get(), path, false);
+		if (dirRes != 0 && !retriedRemote && shouldReconnectRemote(_unifs.get()))
+		{
+			retriedRemote = true;
+			if (!reconnectRemoteOnce(_unifs.get()))
+			{
+				clearOpenState();
+				MessageBoxW(_view ? _view->hwnd() : NULL,
+							L"Could not reconnect to the remote server.",
+							L"Connection Failed", MB_OK | MB_ICONERROR);
+				return IM_FAIL;
+			}
+			dirRes = updateDir(_unifs.get(), path, false);
+		}
+		if (dirRes != 0)
+		{
+			clearOpenState();
+			MessageBoxW(_view ? _view->hwnd() : NULL,
+						L"Cannot open directory.",
+						L"Error", MB_OK | MB_ICONERROR);
+			return IM_FAIL;
+		}
 		scanned = true;
 	}
 	else	// just update idx
@@ -262,7 +359,6 @@ int Doc::open(std::shared_ptr<UniFs> unifs, const char *path, int cmdid, bool fo
 
 	return IM_OK;
 }
-
 // update dirfiles; if preservelast==true and the file is already in current
 // _dir, skip the expensive directory re-scan
 int Doc::updateDir(UniFs *fs, const char *filepath, bool preservelast)

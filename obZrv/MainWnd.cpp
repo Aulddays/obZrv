@@ -418,18 +418,15 @@ void MainWnd::OnCommand(UINT id)
 		ConnectDlg dlg;
 		std::string host;
 		uint16_t    port = 0;
-		auto client = dlg.DoModal(m_hwnd, host, port);
-		if (client) {
-			RemoteBrowserDlg browser;
-			std::string remotePath = browser.DoModal(m_hwnd, client.get());
-			if (!remotePath.empty()) {
-				if (m_doc.open(std::shared_ptr<UniFs>(client.release()),
-						   remotePath.c_str(), -1, true, INT_MIN) == IM_OK) {
-					m_recentFiles.AddRemote(host, port, remotePath);
-					UpdateRecentFilesMenu();
-				}
-				SetFocus(m_mainView.imageView().hwnd());
+		std::string remotePath;
+		auto client = dlg.DoModal(m_hwnd, host, port, remotePath,
+							   m_doc.getUniFs(), m_doc.getPath().c_str());
+		if (client && !remotePath.empty()) {
+			if (m_doc.open(client, remotePath.c_str(), -1, true, INT_MIN) == IM_OK) {
+				m_recentFiles.AddRemote(host, port, remotePath);
+				UpdateRecentFilesMenu();
 			}
+			SetFocus(m_mainView.imageView().hwnd());
 		}
 		break;
 	}

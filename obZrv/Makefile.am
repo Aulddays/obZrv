@@ -14,7 +14,6 @@ obZrv_SOURCES = \
 	config.h    config.cpp \
 	strutil.h \
 	ConnectDlg.h  ConnectDlg.cpp \
-	RemoteBrowserDlg.h RemoteBrowserDlg.cpp \
 	Codec.h \
 	GdiPlusCodec.h  GdiPlusCodec.cpp \
 	WebpCodec.h     WebpCodec.cpp \

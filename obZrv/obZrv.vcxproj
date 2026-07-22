@@ -175,7 +175,6 @@
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="RecentFileRegistry.cpp" />
-    <ClCompile Include="RemoteBrowserDlg.cpp" />
     <ClCompile Include="SlideShowDlg.cpp" />
     <ClCompile Include="StatusBar.cpp" />
     <ClCompile Include="Toolbar.cpp" />
@@ -199,7 +198,6 @@
     <ClInclude Include="Menu.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="RecentFileRegistry.h" />
-    <ClInclude Include="RemoteBrowserDlg.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="SlideShowDlg.h" />
     <ClInclude Include="StatusBar.h" />

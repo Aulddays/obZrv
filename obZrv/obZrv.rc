@@ -7,7 +7,7 @@ IDI_APPICON ICON "res/obZrv.ico"
 /* comctl32 v6 visual styles - requires manifest embedded as RT_MANIFEST */
 1 24 "res/obZrv.manifest"
 
-/* Toolbar PNG icon strips (9 buttons × icon-size, RGBA) */
+/* Toolbar PNG icon strips (9 buttons x icon-size, RGBA) */
 IDR_TOOLBAR_96  RCDATA "res/Toolbar.20.png"
 IDR_TOOLBAR_120 RCDATA "res/Toolbar.25.png"
 IDR_TOOLBAR_144 RCDATA "res/Toolbar.30.png"
@@ -99,15 +99,19 @@ BEGIN
 END
 
 /* Dialog: Connect to remote server */
-IDD_CONNECT DIALOGEX 0, 0, 200, 56
-STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+IDD_CONNECT DIALOGEX 0, 0, 280, 244
+STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME
 CAPTION "Open Remote"
 FONT 8, "MS Shell Dlg"
 BEGIN
-    LTEXT           "Host:port:",   -1,         7,  9,  40, 12, SS_CENTERIMAGE
-    COMBOBOX        IDC_HOST,                   50,  8, 136, 80, CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_VSCROLL | WS_TABSTOP
-    DEFPUSHBUTTON   "Connect",      IDOK,       34, 34,  50, 14
-    PUSHBUTTON      "Cancel",       IDCANCEL,   92, 34,  50, 14
+    LTEXT           "Host:port:",   -1,           7,   9,  40, 12, SS_CENTERIMAGE
+    COMBOBOX        IDC_HOST,                     50,   8, 158, 80, CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_VSCROLL | WS_TABSTOP
+    PUSHBUTTON      "Connect",      IDC_CONNECT, 216,   8,  56, 14
+    PUSHBUTTON      "^",            IDC_BTN_UP,    7,  28,  18, 12
+    LTEXT           "",             IDC_PATHBAR,  30,  31, 243, 10
+    LISTBOX         IDC_FILELIST,     7,  45, 266, 171, LBS_NOTIFY | WS_VSCROLL | WS_TABSTOP
+    DEFPUSHBUTTON   "Open",         IDOK,         84, 224,  50, 14
+    PUSHBUTTON      "Cancel",       IDCANCEL,    144, 224,  50, 14
 END
 
 
@@ -149,20 +153,6 @@ BEGIN
     PUSHBUTTON      "Start\n Full Screen",IDC_SS_FULLSCREEN,28,227,90,26
     PUSHBUTTON      "Start\n Windowed",IDC_SS_WINDOWED,134,227,90,26
     PUSHBUTTON      "Cancel",IDCANCEL,240,227,90,26
-END
-
-
-/* Dialog: Remote file browser */
-IDD_REMOTE_BROWSER DIALOGEX 0, 0, 280, 200
-STYLE DS_SETFONT | DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME
-CAPTION "Open Remote File"
-FONT 8, "MS Shell Dlg"
-BEGIN
-    LTEXT           "",             IDC_PATHBAR,   7,   6, 230,  10
-    PUSHBUTTON      "Up",           IDC_BTN_UP,  243,   4,  30,  12
-    LISTBOX         IDC_FILELIST,    7,  20, 266, 152, LBS_NOTIFY | WS_VSCROLL | WS_TABSTOP
-    DEFPUSHBUTTON   "Open",         IDOK,         60, 178,  50,  14
-    PUSHBUTTON      "Cancel",       IDCANCEL,    118, 178,  50,  14
 END
 
 

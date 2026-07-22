@@ -25,31 +25,40 @@
 #include <vector>
 #include <stdint.h>
 
-class UniFs;  // forward declaration
+class UniFs;
 
-/* ConnectDlg - modal dialog to connect to a remote UniFs server.
- *
- * Usage:
- *   ConnectDlg dlg;
- *   auto client = dlg.DoModal(hParent, host_out, port_out);
- *   if (client) { ... }  // nullptr on cancel or failure
- */
 class ConnectDlg
 {
 public:
-    /* Show the dialog.  On success returns a connected UniFs (RemoteFs) and fills
-     * host/port; on cancel or connection failure returns nullptr. */
-    std::unique_ptr<UniFs> DoModal(HWND hParent,
-                                   std::string &host, uint16_t &port);
+	std::shared_ptr<UniFs> DoModal(HWND hParent,
+	                                std::string &host, uint16_t &port,
+	                                std::string &remotePath,
+	                                std::shared_ptr<UniFs> existing = std::shared_ptr<UniFs>(),
+	                                const char *initialPath = nullptr);
 
 private:
-    HWND m_hwnd = NULL;
+	struct Entry {
+		std::string name;
+		bool        is_dir;
+	};
 
-    static INT_PTR CALLBACK DlgProc(HWND, UINT, WPARAM, LPARAM);
-    INT_PTR HandleMessage(HWND hDlg, UINT msg, WPARAM wp, LPARAM lp);
+	HWND m_hwnd = NULL;
+	HFONT m_listFont = NULL;
 
-    /* Filled by IDOK handler before EndDialog */
-    std::string  m_host;
-    uint16_t     m_port   = 0;
-    std::unique_ptr<UniFs> m_client;  // set on successful connect
+	static INT_PTR CALLBACK DlgProc(HWND, UINT, WPARAM, LPARAM);
+	INT_PTR HandleMessage(HWND hDlg, UINT msg, WPARAM wp, LPARAM lp);
+
+	void InitBrowserFont(HWND hDlg);
+	void SetBrowserEnabled(bool enabled);
+	void Navigate(const std::string &dir);
+	void PopulateList();
+	void TryOpenSelected();
+	bool ConnectFromInput(HWND hDlg);
+
+	std::string  m_host;
+	uint16_t     m_port = 0;
+	std::shared_ptr<UniFs> m_client;
+	std::string  m_cwd;
+	std::string  m_result;
+	std::vector<Entry> m_entries;
 };

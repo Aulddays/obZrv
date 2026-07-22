@@ -74,6 +74,7 @@ public:
 
 	Image *getImage() const { return _image; }
 	const std::string &getPath() const { return _path; }
+	std::shared_ptr<UniFs> getUniFs() const { return _unifs; }
 
 	// Directory navigation
 	enum NavCmd { NAV_FIRST, NAV_LAST, NAV_PREV, NAV_NEXT };
@@ -126,4 +127,5 @@ private:
 	// update _dir/_dirfiles; if preservelast==true and file is already in
 	// current _dir, skip the re-scan
 	int updateDir(UniFs *fs, const char *filepath, bool preservelast = false);
+	void clearOpenState();
 };

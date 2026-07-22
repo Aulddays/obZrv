@@ -30,7 +30,6 @@
 #include "dpi.h"
 #include "strutil.h"
 #include "ConnectDlg.h"
-#include "RemoteBrowserDlg.h"
 #include "RecentFileRegistry.h"
 #include "SlideShowDlg.h"
 
